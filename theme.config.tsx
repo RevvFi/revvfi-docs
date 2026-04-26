@@ -27,7 +27,7 @@ const config: DocsThemeConfig = {
   docsRepositoryBase: 'https://github.com/RevvFi/revvfi-docs/blob/main',
 
   footer: {
-    text: (
+    content: (
       <div style={{ textAlign: 'center' }}>
         <p style={{ marginBottom: '0.5rem' }}>© 2026 RevvFi. All rights reserved.</p>
         <p style={{ fontSize: '0.9rem', color: '#666' }}>
@@ -50,11 +50,7 @@ const config: DocsThemeConfig = {
     placeholder: 'Search documentation...',
   },
 
-  primaryHue: 260,
-
-  nextThemes: {
-    defaultTheme: 'dark',
-  },
+  darkMode: true,
 }
 
 export default config
