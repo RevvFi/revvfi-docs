@@ -1,0 +1,486 @@
+# Deployment Architecture
+
+Network selection, contract deployment, and upgrade strategy for RevvFi.
+
+---
+
+## Network Selection
+
+### Primary Networks
+
+RevvFi v1 prioritizes Base and Arbitrum for optimal cost and accessibility.
+
+| Network | Chain ID | Gas Price | Choice | Rationale |
+|---------|----------|-----------|--------|-----------|
+| **Base** | 8453 | ~1 Gwei | **Primary** | Low cost, growing ecosystem, Coinbase backing |
+| **Arbitrum** | 42161 | ~0.5 Gwei | **Primary** | Ultra-low gas, high liquidity, mature ecosystem |
+| **Ethereum** | 1 | ~50 Gwei | **Secondary** | High security, maximum decentralization, 10-50x cost |
+
+### Network Characteristics
+
+**Base:**
+- EVM-equivalent rollup on Ethereum
+- ~7-day withdrawal to mainnet
+- Sequencer maintained by Coinbase
+- Strong validator set
+- Growing TVL and user base
+
+**Arbitrum:**
+- Optimistic rollup on Ethereum
+- ~1-week challenge period for withdrawals
+- Decentralized validator set
+- Highest liquidity of L2s
+- Mature ecosystem (1000+ projects)
+
+**Ethereum:**
+- L1 (mainnet)
+- Final settlement
+- Highest security
+- Highest cost (10-50x more gas)
+- Optional for conservative projects
+
+---
+
+## Contract Deployment Order
+
+### Phase 1: Infrastructure Contracts (Upgradeable)
+
+```
+1. Deploy CreatorProfileRegistry
+   - Owner: Guardian Multisig
+   - Manages creator metadata
+   - Can be upgraded
+
+2. Deploy PopularityOracle
+   - Owner: Guardian Multisig  
+   - References CreatorProfileRegistry
+   - Can be upgraded
+
+3. Deploy TokenTemplateFactory
+   - Owner: Guardian Multisig
+   - Immutable token templates
+   - Can be upgraded if templates need changes
+```
+
+### Phase 2: Core Contracts (Upgradeable)
+
+```
+4. Deploy RevvFiFactory
+   - Owner: Guardian Multisig
+   - Constructor args:
+     - uniswapRouter address (network-specific)
+     - templateFactory address
+     - creatorRegistry address
+     - populationOracle address
+     - guardianMultisig address
+   - Can be upgraded
+
+5. Deploy RevvFiGovernance
+   - Owner: Guardian Multisig
+   - References RevvFiFactory
+   - Can be upgraded
+```
+
+### Phase 3: Verification & Testing
+
+```
+6. Verify contracts on block explorer
+   - Submit source code
+   - Verify constructor args
+   - Mark as "verified"
+
+7. Create test launch on testnet
+   - Create LaunchConfig
+   - Deploy test token
+   - Simulate LP deposits
+   - Test governance
+   - Verify all flows work
+
+8. Audit by external firm (recommended)
+   - Security review
+   - Gas optimization
+   - Edge case testing
+```
+
+### Phase 4: Mainnet Launch
+
+```
+9. Deploy to mainnet
+10. Publish deployment addresses
+11. Announce on social media
+12. Monitor for first 72 hours
+```
+
+---
+
+## Deployment Verification Checklist
+
+### Pre-Deployment
+
+- [ ] All contracts audited
+- [ ] Test suite passes 100%
+- [ ] Constructor arguments verified
+- [ ] Gas optimizations complete
+- [ ] Documentation updated
+- [ ] Social media announcement prepared
+- [ ] Support team briefed
+
+### Post-Deployment
+
+- [ ] All addresses recorded
+- [ ] Verified on block explorer
+- [ ] Factory creates launches successfully
+- [ ] Monitor unusual activity
+- [ ] Community feedback collected
+- [ ] Upgrade paths documented
+
+---
+
+## Contract Upgrades
+
+### Upgrade Strategy
+
+RevvFi uses **selective upgradability**: only protocol-level contracts upgrade, not per-launch contracts.
+
+**Upgradeable Contracts:**
+- RevvFiFactory
+- RevvFiGovernance
+- TokenTemplateFactory
+- CreatorProfileRegistry
+- PopularityOracle
+
+**Non-Upgradeable Contracts:**
+- RevvFiBootstrapper (per-launch)
+- CreatorVestingVault (per-launch)
+- TreasuryVault (per-launch)
+- StrategicReserveVault (per-launch)
+- RewardsDistributor (per-launch)
+
+### Upgrade Process
+
+#### Step 1: Propose Upgrade
+
+```solidity
+// Guardian multisig calls:
+factory.proposeUpgrade(
+    address newImplementation,
+    string memory reason
+);
+
+// Emits: UpgradeProposed(newImplementation, reason, timestamp)
+```
+
+#### Step 2: Timelock Delay
+
+- Upgrade locked for 7 days
+- Allows community time to react
+- Can be cancelled by governance vote
+
+#### Step 3: Execute Upgrade
+
+```solidity
+// After 7 days, guardian executes:
+factory.executeUpgrade(newImplementation);
+
+// Implementation pointer updated
+// New code takes effect immediately
+```
+
+### Rollback Plan
+
+If upgrade causes issues:
+
+```solidity
+// Guardian can rollback to previous implementation
+factory.rollback(previousImplementation);
+
+// Reverts to known-good version
+// Governance can then investigate
+```
+
+---
+
+## Per-Launch Contract Lifecycle
+
+### Contract Creation
+
+When creator calls `createLaunch()`:
+
+```
+1. RevvFiFactory creates new instances:
+   - RevvFiBootstrapper ──┐
+   - CreatorVestingVault  ├─ All created in one TX
+   - TreasuryVault        ├─ Immutable after creation
+   - StrategicReserveVault│
+   - RewardsDistributor ──┘
+
+2. Factory stores references:
+   - bootstrappers[launchId] = address
+   - isDeployed[address] = true
+
+3. Deploy token:
+   - TokenTemplateFactory.deployToken()
+   - Transfer allocations to vaults
+```
+
+### Contract Lifecycle
+
+```
+                   Created
+                     │
+                     ▼
+              ┌──────────────┐
+              │  DEPOSIT     │  LPs can deposit ETH
+              │  PHASE       │  Shares minted
+              └──────┬───────┘  Runs until raiseEndTime
+                     │
+     ┌───────────────┴───────────────┐
+     │ (If target reached)           │ (If target NOT reached)
+     ▼                               ▼
+┌──────────────┐               ┌──────────────┐
+│   LAUNCH     │               │    FAILED    │
+│   PHASE      │               │   PHASE      │
+└──────┬───────┘               └──────┬───────┘
+       │ liquidityDeployed = true  │ LPs claim refunds
+       │ Uniswap pair created      │ ETH returned
+       ▼                               │
+┌──────────────┐                      │
+│  LOCK        │                      │
+│  PERIOD      │                      │
+└──────┬───────┘                      │
+       │ Runs until maturityTime    │
+       │ LPs cannot withdraw        │
+       │ Governance active          │
+       ▼                            │
+┌──────────────┐                    │
+│   MATURE     │                    │
+│   PHASE      │                    │
+└──────┬───────┘                    │
+       │ LPs can withdraw           │
+       │ withdrawAsAssets()      ←──┘
+       │ withdrawAsETH()
+       ▼
+    [ENDED]
+```
+
+### Permanent Storage
+
+Even after LP withdrawals complete:
+
+```solidity
+// Bootstrap contract remains accessible for:
+- Viewing historical data
+- Querying final state
+- Governance queries
+- Archive purposes
+
+// No destruction or cleanup
+// Costs LP nothing (owner pays for storage)
+```
+
+---
+
+## Gas Optimization Strategies
+
+### Batch Deposits (Platform Level)
+
+If platform aggregates deposits:
+
+```solidity
+// Create launcher contract to aggregate deposits
+contract DepositAggregator {
+    RevvFiBootstrapper public bootstrapper;
+    
+    function batchDeposit(address[] calldata lps, uint256[] calldata amounts) 
+        external 
+    {
+        for (uint i = 0; i < lps.length; i++) {
+            // Single TX, multiple deposits
+            // Saves gas vs individual TXs
+        }
+    }
+}
+```
+
+**Savings:** ~5-10% per deposit in batch
+
+### Timelock Batching
+
+Batch governance executions:
+
+```solidity
+// Instead of 5 separate execute() calls:
+governance.batchExecute(
+    uint256[] calldata proposalIds
+);
+
+// Execute all proposals in one TX
+// Save ~100k gas vs 5 separate TXs
+```
+
+---
+
+## Monitoring & Operations
+
+### Health Checks
+
+Daily monitoring tasks:
+
+```
+1. Factory Health
+   - Can create new launches?
+   - Are registrations updating?
+   - Fee collection working?
+
+2. Bootstrap Health
+   - Can LPs deposit?
+   - Can launches execute?
+   - Withdrawals functioning?
+
+3. Uniswap Health
+   - Pair creation working?
+   - Liquidity additions succeeding?
+   - Removals functioning?
+
+4. Governance Health
+   - Can LPs vote?
+   - Timelock enforced?
+   - Executions working?
+```
+
+### Alerting
+
+Set up alerts for:
+
+```
+- Launch creation failures
+- Unusual deposit patterns (whales)
+- Governance proposal rejections
+- Execution timeouts
+- Uniswap errors
+- Gas price spikes
+```
+
+### Metrics Dashboard
+
+Track:
+
+```
+- Total value locked (TVL)
+- Number of active launches
+- Average launch success rate
+- Average LP profitability
+- Governance participation %
+- Gas costs per operation
+- Protocol fee collected
+```
+
+---
+
+## Disaster Recovery
+
+### Scenario 1: Factory Contract Compromised
+
+**Response:**
+1. Guardian pauses factory (`pauseFactory()`)
+2. Existing launches unaffected
+3. New launches blocked
+4. Deploy new factory
+5. Migration via governance vote
+
+### Scenario 2: Per-Launch Contract Exploit
+
+**Response:**
+1. Guardian pauses affected bootstrapper
+2. LPs cannot deposit/withdraw
+3. Governance investigates
+4. Manual resolution needed
+5. Document for future audits
+
+### Scenario 3: Uniswap Failure
+
+**Response:**
+1. Bootstrapper.launch() fails
+2. Catch error, set failed = true
+3. LPs claim refunds
+4. Retry when Uniswap recovers
+
+### Scenario 4: Large-Scale Exploit
+
+**Response:**
+1. Guardian emergency pause
+2. Stop new launches
+3. Audit all active launches
+4. Communicate with LPs
+5. Plan fix/mitigation
+6. Gradual recovery
+
+---
+
+## Compliance & Regulation
+
+### No Restrictions on:
+
+✅ Who can create launches
+✅ Who can participate
+✅ Token types (within ERC20)
+✅ Geographic location
+
+### Recommendations:
+
+⚠️ Creators should perform due diligence on LP base
+⚠️ Consider legal implications per jurisdiction
+⚠️ Document tokenomics clearly
+⚠️ Disclose risks transparently
+
+### Insurance & Bonding
+
+Future considerations (v2+):
+
+- Creator bonding: Stake funds to guarantee good behavior
+- LP insurance: Pool covering failed launches
+- Audit proof: Required before launch
+- Creator verification: Enhanced due diligence
+
+---
+
+## Scaling Considerations
+
+### Capacity Estimates (Single Network)
+
+| Metric | Estimate |
+|--------|----------|
+| Block gas limit | 30M (Base), 100M (Arbitrum) |
+| Deposits/block | 50-100 (at ~80k gas each) |
+| Launches/block | 1-2 (at ~500k gas each) |
+| Governance votes/block | 50-100 (at ~50k gas each) |
+
+### Theoretical Maximum
+
+```
+Base (30M gas/block, 2s blocks):
+- ~450 deposits per second
+- ~1.5 launches per second
+- ~150 votes per second
+
+Arbitrum (100M gas/block, 0.5s blocks):
+- ~500 deposits per second
+- ~2 launches per second
+- ~300 votes per second
+```
+
+### When to Expand
+
+Consider v2 deployment when:
+- Total active launches > 500
+- Daily transaction volume > 100k
+- Average block utilization > 50%
+- User complaints about gas/congestion
+
+---
+
+## Next Steps
+
+- Review [Contracts](/architecture/contracts) for implementation
+- Check [Reference](/reference) for network addresses
+- Read [Mechanics](/mechanics) to understand user flows

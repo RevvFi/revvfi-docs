@@ -1,0 +1,472 @@
+# Smart Contract Specifications
+
+Complete technical specifications for all RevvFi smart contracts.
+
+## 1. RevvFiFactory
+
+**Purpose:** Deploys new launch instances, maintains registry, enforces launch fees.
+
+### State Variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `bootstrapperCount` | uint256 | Number of launches deployed |
+| `bootstrappers` | mapping(uint256 => address) | Launch ID to bootstrapper address |
+| `isDeployed` | mapping(address => bool) | True if address is valid bootstrapper |
+| `templateToken` | address | TokenTemplateFactory reference |
+| `uniswapRouter` | address | Uniswap V2 router address |
+| `guardianMultisig` | address | Emergency multisig address |
+| `platformFeeRecipient` | address | Platform fee treasury |
+| `creatorRegistry` | address | CreatorProfileRegistry address |
+| `popularityOracle` | address | PopularityOracle address |
+| `LAUNCH_FEE` | uint256 | 0.1 ETH (fixed) |
+
+### Core Functions
+
+#### `createLaunch(LaunchConfig calldata config)`
+
+**Requirements:**
+- `msg.value >= LAUNCH_FEE` (0.1 ETH)
+- Config values validated
+
+**Actions:**
+1. Accept launch fee
+2. Deploy new RevvFiBootstrapper
+3. Deploy CreatorVestingVault
+4. Deploy TreasuryVault  
+5. Deploy StrategicReserveVault
+6. Deploy RewardsDistributor
+7. Register launch
+8. Transfer token allocations to vaults
+
+**Returns:** Launch ID, bootstrapper address
+
+**Events:** `LaunchCreated(uint256 launchId, address creator, address bootstrapper)`
+
+#### `getLaunch(uint256 launchId)`
+
+**Returns:** Bootstrapper address and metadata
+
+#### `pauseLaunch(address bootstrapper)`
+
+**Access:** Guardian multisig only
+
+**Effect:** Pauses deposits; LPs cannot deposit after pause
+
+### LaunchConfig Structure
+
+```solidity
+struct LaunchConfig {
+    string tokenName;
+    string tokenSymbol;
+    uint256 totalSupply;
+    uint256 liquidityAllocation;    // Tokens for Uniswap pair
+    uint256 creatorVestingAmount;   // Creator tokens (vested)
+    uint256 treasuryAmount;         // LP-controlled reserve
+    uint256 strategicReserveAmount; // Governance reserve
+    uint256 rewardsAmount;          // Community rewards
+    uint256 raiseWindowDuration;    // Seconds (e.g., 2 weeks)
+    uint256 targetLiquidityETH;     // Min ETH required
+    uint256 hardCapETH;             // Max ETH (0 means no cap)
+    uint256 lockDuration;           // Seconds LP lock (30-730 days)
+    uint256 creatorCliffDuration;   // Creator vesting cliff
+    uint256 creatorVestingDuration; // Creator vesting period
+    uint8 templateId;               // Token template (0=Community, 1=Utility, 2=Meme)
+    string tokenURI;                // Metadata URI
+}
+```
+
+**Validation:**
+```text
+totalSupply = liquidityAllocation + creatorVestingAmount 
+              + treasuryAmount + strategicReserveAmount + rewardsAmount
+
+targetLiquidityETH > 0
+hardCapETH == 0 OR hardCapETH >= targetLiquidityETH
+lockDuration >= 30 days (2,592,000 seconds)
+lockDuration <= 730 days (63,072,000 seconds)
+```
+
+---
+
+## 2. TokenTemplateFactory
+
+**Purpose:** Deploys immutable ERC20 tokens from audited templates.
+
+### Core Functions
+
+#### `deployToken(LaunchConfig memory config, address recipient)`
+
+**Actions:**
+1. Validate config
+2. Deploy new ERC20 contract
+3. Mint entire supply in constructor to `recipient`
+4. Register token as RevvFi origin
+
+**Returns:** Token address
+
+**Immutable Enforcement:**
+- No mint function post-constructor
+- No proxy pattern
+- No transfer pause function
+- No blacklist function
+- No upgradeable pattern
+
+#### `isRevvFiToken(address token)`
+
+**Returns:** True if token was deployed by TokenTemplateFactory
+
+---
+
+## 3. RevvFiBootstrapper
+
+**Purpose:** Primary contract for a single launch. Orchestrates deposits, liquidity deployment, lock period, withdrawals, refunds.
+
+### State Variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `creator` | address | Token creator |
+| `revvToken` | address | The deployed ERC20 token |
+| `weth` | address | WETH contract (0xC02aaA39b223FE8D0A0e8e4F27ead9083C756Cc2) |
+| `uniswapRouter` | address | Uniswap V2 router |
+| `uniswapPair` | address | Uniswap V2 pair (set after launch) |
+| `uniLPTokenAmount` | uint256 | Uniswap LP tokens held |
+| `totalDepositedETH` | uint256 | Total ETH from LPs |
+| `totalShares` | uint256 | Total shares outstanding |
+| `shares` | mapping(address => uint256) | LP address to share balance |
+| `targetLiquidityETH` | uint256 | Minimum ETH required |
+| `hardCapETH` | uint256 | Maximum ETH cap (0 means no limit) |
+| `raiseEndTime` | uint256 | Deposit window close |
+| `lockDuration` | uint256 | LP lock period (seconds) |
+| `maturityTime` | uint256 | raiseEndTime + lockDuration |
+| `launched` | bool | True after liquidity deployed |
+| `failed` | bool | True if target not reached |
+| `refundClaimed` | mapping(address => bool) | LP refund claims |
+| `creatorVestingVault` | address | Creator vault contract |
+| `treasuryVault` | address | Treasury vault contract |
+| `strategicReserveVault` | address | Strategic reserve vault |
+| `rewardsDistributor` | address | Rewards contract |
+| `paused` | bool | Emergency pause flag |
+
+### Core Functions
+
+#### `depositETH()`
+
+**Requirements:**
+- `!paused` (not paused)
+- `!launched` (before launch)
+- `!failed` (before failure)
+- `block.timestamp <= raiseEndTime`
+- `msg.value > 0`
+- If `hardCapETH > 0`: `totalDepositedETH + msg.value <= hardCapETH`
+
+**Actions:**
+```solidity
+shares[msg.sender] += msg.value;
+totalShares += msg.value;
+totalDepositedETH += msg.value;
+```
+
+**Events:** `Deposit(address indexed lp, uint256 ethAmount, uint256 sharesMinted)`
+
+#### `launch()`
+
+**Requirements:**
+- `!launched` (not already launched)
+- `!failed` (not failed)
+- `block.timestamp <= raiseEndTime`
+- `totalDepositedETH >= targetLiquidityETH`
+
+**Actions:**
+1. Set `launched = true`
+2. Calculate `maturityTime` as `raiseEndTime + lockDuration`
+3. Approve Uniswap router for tokens and WETH
+4. Call `router.addLiquidityETH()` with:
+    - `tokenAmount` as `liquidityAllocation`
+    - `ethAmount` as `totalDepositedETH`
+   - minTokenOut, minEthOut (with 1% slippage)
+5. Store returned `uniLPTokenAmount`
+6. Transfer vault allocations:
+   - Creator tokens → CreatorVestingVault
+   - Treasury tokens → TreasuryVault
+   - Strategic tokens → StrategicReserveVault
+   - Rewards tokens → RewardsDistributor
+7. Pay 0.01 ETH incentive to caller
+
+**Events:** 
+```solidity
+LaunchSuccess(
+    uint256 totalDepositedETH,
+    uint256 tokenAmountAdded,
+    uint256 uniLPTokensReceived,
+    uint256 maturityTime,
+    address indexed caller
+)
+```
+
+#### `refundLP()`
+
+**Requirements:**
+- `!launched` (never launched)
+- `block.timestamp > raiseEndTime` (deposit window closed)
+- `totalDepositedETH < targetLiquidityETH` (target not met)
+- First call sets `failed = true`
+- Subsequent calls require `failed == true`
+- `!refundClaimed[msg.sender]` (not already claimed)
+
+**Actions:**
+```solidity
+uint256 ethAmount = shares[msg.sender];
+refundClaimed[msg.sender] = true;
+shares[msg.sender] = 0;
+totalShares -= ethAmount;
+totalDepositedETH -= ethAmount;
+(bool success, ) = msg.sender.call{value: ethAmount}("");
+require(success, "Transfer failed");
+```
+
+**Events:** `Refund(address indexed lp, uint256 ethAmount)`
+
+#### `withdrawAsAssets(uint256 shareAmount)`
+
+**Requirements:**
+- `launched == true` (must be launched)
+- `block.timestamp >= maturityTime` (lock period over)
+- `!paused`
+- `shares[msg.sender] >= shareAmount`
+
+**Actions:**
+1. Calculate LP's share fraction: `shareFraction = shareAmount × 1e18 / totalShares`
+2. Calculate LP tokens to remove: `lpTokensToRemove = shareFraction × uniLPTokenAmount / 1e18`
+3. Call `router.removeLiquidityETH()` to get back tokens and ETH
+4. Calculate LP's proportions of output
+5. Transfer ETH and tokens to LP
+6. Update share tracking
+
+**Events:** `WithdrawAsAssets(address indexed lp, uint256 eth, uint256 tokens)`
+
+#### `withdrawAsETH(uint256 shareAmount)`
+
+**Same as withdrawAsAssets but:**
+- Swaps returned tokens to ETH via Uniswap router
+- Requires `minEthOut` parameter
+- LP receives only ETH
+
+**Events:** `WithdrawAsETH(address indexed lp, uint256 totalEth)`
+
+#### `emergencyPause()`
+
+**Access:** Guardian multisig only
+
+**Effect:** Sets `paused = true`, prevents new deposits
+
+---
+
+## 4. CreatorVestingVault
+
+**Purpose:** Holds creator tokens with cliff + linear vesting protection.
+
+### State Variables
+
+```solidity
+struct VestingSchedule {
+    uint256 totalAmount;
+    uint256 releasedAmount;
+    uint256 startTime;
+    uint256 cliffDuration;
+    uint256 vestingDuration;
+}
+```
+
+### Release Formula
+
+```solidity
+function releasableAmount() public view returns (uint256) {
+    if (block.timestamp < startTime + cliffDuration) {
+        return 0;  // Nothing during cliff
+    }
+    
+    if (block.timestamp >= startTime + cliffDuration + vestingDuration) {
+        return totalAmount - releasedAmount;  // All after vesting
+    }
+    
+    uint256 elapsed = block.timestamp - (startTime + cliffDuration);
+    uint256 vested = (totalAmount * elapsed) / vestingDuration;
+    return vested - releasedAmount;
+}
+```
+
+### Core Functions
+
+#### `release()`
+
+**Effect:** Creator receives `releasableAmount()`
+
+**Events:** `TokensReleased(address creator, uint256 amount)`
+
+---
+
+## 5. TreasuryVault
+
+**Purpose:** LP-controlled reserve funds with governance protection.
+
+### Properties
+
+- **Approval Threshold:** 60% of shares
+- **Timelock:** 7 days
+- **Release Mechanism:** Governance vote required
+- **Creator Access:** None (enforced at contract level)
+
+### Core Functions
+
+#### `proposeRelease(uint256 amount, string description)`
+
+**Effect:** Creates governance proposal to release `amount` tokens
+
+#### `executeRelease(uint256 proposalId)`
+
+**Requirements:**
+- Proposal approved (60% threshold met)
+- 7-day timelock elapsed
+- Treasury has sufficient balance
+
+---
+
+## 6. StrategicReserveVault
+
+**Purpose:** Long-term strategic funding with stricter controls.
+
+### Properties
+
+- **Approval Threshold:** 66% of shares
+- **Timelock:** 14 days
+- **Rate Limit:** Max 25% per calendar quarter
+- **Creator Access:** None
+
+---
+
+## 7. RewardsDistributor
+
+**Purpose:** Emits community rewards on schedule.
+
+### Key Points
+
+- **Allocation:** Fixed amount set at launch
+- **Schedule:** Creator-defined (e.g., linear over 1 year)
+- **Not Volume-Dependent:** Fixed emissions regardless of trading volume
+- **Recipients:** Community programs, farming, staking
+
+### Core Functions
+
+#### `distributeRewards(address recipient, uint256 amount)`
+
+**Requirements:**
+- Called by governance
+- `Amount <= remaining available`
+- Schedule respected
+
+---
+
+## 8. RevvFiGovernance
+
+**Purpose:** Voting system using direct share balances (no separate token).
+
+### Voting Power
+
+```solidity
+function getVotingPower(address voter) public view returns (uint256) {
+    return IRevvFiBootstrapper(bootstrapper).shares(voter);
+}
+```
+
+**Key Property:** Voting power is direct share balance, linear weighting
+
+### Proposal Types
+
+| Type | Target | Threshold | Timelock |
+|------|--------|-----------|----------|
+| 0 | TreasuryVault | 60% | 7 days |
+| 1 | StrategicReserveVault | 66% | 14 days |
+| 2 | Lock Reduction | 75% + creator consent | 14 days |
+| 3 | Emergency | 80% | 48 hours |
+
+### Core Functions
+
+#### `propose(ProposalType type, bytes calldata data, string description)`
+
+**Effect:** Creates new governance proposal
+
+#### `castVote(uint256 proposalId, uint256 forAgainst)`
+
+**Parameters:**
+- `forAgainst`: 1 — For, 0 — Against
+- Voting power is `shares[msg.sender]`
+
+#### `executeProposal(uint256 proposalId)`
+
+**Requirements:**
+- Timelock elapsed
+- Threshold met
+
+---
+
+## 9. CreatorProfileRegistry
+
+**Purpose:** Creator metadata and reputation tracking.
+
+```solidity
+struct CreatorProfile {
+    string name;
+    string website;
+    string twitter;
+    string github;
+    bool kycVerified;
+    uint256 successfulLaunches;
+    uint256 failedLaunches;
+    uint256 reputationScore;
+    uint256 lastUpdateTime;
+}
+```
+
+---
+
+## 10. PopularityOracle
+
+**Purpose:** Calculate popularity scores for launches.
+
+### Score Components
+
+| Metric | Weight | Formula |
+|--------|--------|---------|
+| Deposit Velocity | 30% | (ETH/day) / targetETH |
+| Unique Depositors | 25% | Unique addresses |
+| Social Verification | 20% | Twitter/GitHub verified |
+| Creator Reputation | 15% | From CreatorProfileRegistry |
+| Time to Target | 10% | Days to 50% of target |
+
+### Score Calculation
+
+```solidity
+function calculateScore(address bootstrapper) external view returns (uint256) {
+    // Returns 0-100
+    // Higher = more popular / trustworthy
+}
+```
+
+**Events:**
+```solidity
+event ScoreUpdated(
+    address indexed bootstrapper,
+    uint256 newScore,
+    uint256 timestamp
+);
+```
+
+---
+
+## Next Steps
+
+- Review [Data Structures](/architecture/data-structures) for storage patterns
+- Check [Deployment](/architecture/deployment) for network configuration
+- Explore [Mechanics](/mechanics) for system flows

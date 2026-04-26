@@ -1,0 +1,171 @@
+# Architecture Overview
+
+RevvFi's architecture is built on six core principles:
+
+1. **Per-Token Contract Isolation** - Each launch gets independent contracts
+2. **Global Share Ledger** - LP shares track governance without separate tokens
+3. **Treasury Requirement** - Every launch has LP-controlled treasuries
+4. **Explicit Maturity Times** - Clear formulas for lock periods and withdrawal windows
+5. **Uniswap V2 Integration** - Standardized DEX liquidity
+6. **Modular Vaults** - Creator Vesting, Treasury, Strategic Reserve, and Rewards
+
+## Core Contracts
+
+```
+RevvFiFactory
+├── Creates new launches
+├── Maintains registry
+└── Enforces launch fees (0.1 ETH)
+
+RevvFiBootstrapper (per-launch)
+├── Orchestrates deposits
+├── Manages launch execution
+├── Handles refunds
+├── Coordinates withdrawals
+└── Integrates with Uniswap V2
+
+CreatorVestingVault
+├── Holds creator tokens
+├── Cliff + linear vesting
+└── No creator control until unlocked
+
+TreasuryVault
+├── LP-controlled funds
+├── 60% approval threshold
+├── 7-day timelock
+└── Loss mitigation reserve
+
+StrategicReserveVault
+├── LP governance tokens
+├── 66% approval threshold
+├── 14-day timelock
+├── Max 25% per quarter
+└── Long-term project funding
+
+RewardsDistributor
+├── Fixed allocation at launch
+├── Scheduled emissions
+└── Community incentives
+```
+
+## Key Design Decisions
+
+### 1. Internal Share Ledger (No ERC20 Token)
+
+**Why:** Eliminates contract proliferation and tokenomics complexity
+
+- Shares tracked in `mapping(address => uint256)`
+- Shares = governance voting power
+- Shares are non-transferable
+- 1 share per 1 ETH deposited
+- No separate REVV governance token in v1
+
+### 2. Treasury Vault Requirement
+
+**Why:** Provides LP loss mitigation and project control
+
+- Created for every launch
+- Creator has **zero** access
+- LPs vote on treasury releases
+- Can cover losses if token price crashes
+- Funds marketing, listings, community initiatives
+
+### 3. Explicit Maturity Time Formula
+
+**Formula:**
+```
+maturityTime = raiseEndTime + lockDuration
+```
+
+**Where:**
+- `raiseEndTime` = Timestamp when deposits close
+- `lockDuration` = LP lock period (30-730 days)
+- Maturity time = When LPs can withdraw
+
+**Why:** Removes ambiguity, prevents manipulaton, locks periods clear from day one
+
+### 4. Per-Token Isolation
+
+**Contracts per launch:**
+1. RevvFiBootstrapper (primary orchestrator)
+2. CreatorVestingVault
+3. TreasuryVault
+4. StrategicReserveVault
+5. RewardsDistributor
+
+**Why:**
+- Prevents cross-launch fund contamination
+- Enables independent governance parameters
+- Simplifies audits and security boundaries
+- Allows parallel launches without interference
+
+---
+
+## Architecture Diagram
+
+```
+User Flow:
+┌─────────────┐
+│   Creator   │ ──┐
+└─────────────┘   │
+                  ├──> RevvFiFactory ──> Deploys per-launch contracts
+┌─────────────┐   │         │
+│ Liquidity   │ ──┤         ├──> TokenTemplateFactory ──> ERC20 Token
+│  Providers  │   │         │
+└─────────────┘   │         ├──> CreatorVestingVault
+                  ├──> RevvFiBootstrapper ──┬──> TreasuryVault
+                  │         │               ├──> StrategicReserveVault
+                  └──────────┤               ├──> RewardsDistributor
+                              └──> Uniswap V2 Pair (REVV/WETH)
+```
+
+---
+
+## Contract Lifecycle
+
+### Phase 1: Creation
+- Creator calls `RevvFiFactory.createLaunch()`
+- 0.1 ETH launch fee required
+- New bootstrapper + vaults deployed
+- Token minted to bootstrapper
+
+### Phase 2: Deposit Window
+- LPs deposit ETH into RevvFiBootstrapper
+- Shares minted 1:1 with ETH
+- Deposits tracked until `raiseEndTime`
+- Hard cap enforced if set
+
+### Phase 3: Launch
+- Anyone calls `launch()` when target reached
+- Liquidity added to Uniswap V2
+- Creator/Treasury/Reserve/Rewards tokens transferred
+- Lock period begins: `maturityTime = raiseEndTime + lockDuration`
+
+### Phase 4: Withdrawal
+- After `maturityTime`, LPs can:
+  - **withdrawAsAssets:** Receive ETH + tokens
+  - **withdrawAsETH:** Swap tokens for ETH first
+
+### Phase 5: Governance
+- LPs vote on treasury/strategic releases
+- Proposals use share balance = voting power
+- Thresholds: Treasury (60%), Strategic (66%), Emergency (80%)
+
+---
+
+## Deployment Targets
+
+| Network  | Priority | Rationale                     |
+|----------|----------|-------------------------------|
+| Base     | Primary  | Low gas, growing ecosystem    |
+| Arbitrum | Primary  | Low gas, high liquidity       |
+| Ethereum | Optional | Mainnet, high decentralization |
+
+---
+
+## Next Steps
+
+- Read [Architectural Decisions](/architecture/decisions) for deep dives
+- Explore [Smart Contracts](/architecture/contracts) for full specifications
+- Review [Data Structures](/architecture/data-structures) for storage patterns
+- Check [Deployment](/architecture/deployment) for network config

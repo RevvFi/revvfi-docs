@@ -1,0 +1,426 @@
+# Popularity Scoring
+
+On-chain popularity metrics to help LPs evaluate launch opportunities.
+
+---
+
+## Overview
+
+**Purpose:** Provide transparent, on-chain scoring of launch popularity and credibility
+
+**Score Range:** 0-100 (higher = more popular)
+
+**Usage:** Advisory for LPs (not binding, no smart contract enforcement)
+
+**Update Frequency:** Real-time, recalculated as metrics change
+
+---
+
+## Score Components
+
+RevvFi popularity score combines five on-chain metrics:
+
+### Component 1: Deposit Velocity (30% Weight)
+
+**Metric:** ETH deposited per day vs. target liquidity
+
+**Formula:**
+```
+Velocity Score = min((ETH/day) / (0.1 * targetETH), 1.0) * 100
+```
+
+**Interpretation:**
+- 0/100: Very slow deposits, low interest
+- 50/100: Moderate deposit rate
+- 100/100: Fast deposits, high demand
+
+**Example:**
+```
+Target: 100 ETH
+Days elapsed: 7
+Current deposits: 50 ETH
+
+ETH per day: 50 / 7 = 7.14 ETH/day
+Reference rate: 0.1 × 100 = 10 ETH/day (to reach target in 10 days)
+Velocity: 7.14 / 10 = 0.714 = 71.4/100
+
+Velocity Score: 71.4% × 30% = 21.4 points
+```
+
+### Component 2: Unique Depositors (25% Weight)
+
+**Metric:** Number of distinct addresses deposited
+
+**Formula:**
+```
+Uniqueness Score = min((uniqueCount / 100), 1.0) * 100
+```
+
+**Interpretation:**
+- 0/100: Few depositors (possible whale manipulation)
+- 50/100: ~50 depositors (moderate distribution)
+- 100/100: 100+ depositors (broad participation)
+
+**Example:**
+```
+Current unique depositors: 45
+Reference: 100 depositors for max score
+
+Uniqueness: 45 / 100 = 0.45 = 45/100
+Uniqueness Score: 45% × 25% = 11.25 points
+```
+
+**Significance:**
+- Prevents single whale from inflating popularity
+- Indicates community support
+- Broad LP base = more decentralized governance
+
+### Component 3: Social Verification (20% Weight)
+
+**Metric:** Creator Twitter/GitHub verification status (off-chain oracle)
+
+**Formula:**
+```
+Social Score =
+    100 if verified on 2+ platforms
+     50 if verified on 1 platform
+        0 if unverified
+```
+
+**Interpretation:**
+- 0/100: Unverified creator (high risk)
+- 50/100: Partial verification (medium risk)
+- 100/100: Multi-platform verified (low risk)
+
+**Verification Sources:**
+- Twitter: Blue check or Revvfi-verified account
+- GitHub: Established repo with contributions
+- Discord: Community server with history
+- Website: Domain registered + HTTPS
+
+**Example:**
+```
+Creator: Alice
+- Twitter: @alice_crypto (verified) ✓
+- GitHub: github.com/alice-crypto (1000+ repos) ✓
+- Discord: alice#1234 (community lead) ✓
+
+Verified platforms: 3 ≥ 2 → Score: 100
+Social Score: 100% × 20% = 20 points
+```
+
+### Component 4: Creator Reputation (15% Weight)
+
+**Metric:** Historical launch success rate from CreatorProfileRegistry
+
+**Formula:**
+```
+Reputation Score = (successfulLaunches / (successfulLaunches + failedLaunches)) * 100
+```
+
+**Capped at 100.**
+
+**Interpretation:**
+- 0/100: New creator or poor track record
+- 50/100: 50% success rate
+- 100/100: Perfect success history
+
+**Example:**
+```
+Creator: Bob
+- Successful launches: 3
+- Failed launches: 1
+- Total launches: 4
+
+Success rate: 3 / 4 = 0.75 = 75%
+Reputation Score: 75% × 15% = 11.25 points
+```
+
+**Reputation Tracking:**
+- Incremented on every launch
+- Successful = reached target + locked period started
+- Failed = target not reached by raiseEndTime
+
+### Component 5: Time to Target (10% Weight)
+
+**Metric:** Speed to reach 50% of target liquidity
+
+**Formula:**
+```
+Speed Score = max(100 - (daysTo50% / 5) * 100, 0)
+```
+
+**Interpretation:**
+- Fast (less than 1 day): 95-100 points
+- Moderate (2-5 days): 50-100 points
+- Slow (more than 5 days): 0-50 points
+
+**Example:**
+```
+Target: 100 ETH
+50% target: 50 ETH
+
+Reached 50 ETH in: 2 days
+
+Speed Score: 100 - (2 / 5) × 100 = 100 - 40 = 60
+Speed Score: 60% × 10% = 6 points
+```
+
+---
+
+## Total Score Calculation
+
+```
+Total Score = 
+    (Velocity × 0.30) +
+    (Uniqueness × 0.25) +
+    (Social × 0.20) +
+    (Reputation × 0.15) +
+    (Speed × 0.10)
+
+Maximum: 100 points
+```
+
+### Score Interpretation Scale
+
+| Range | Rating | Recommendation |
+|-------|--------|-----------------|
+| 90-100 | Excellent | High confidence, established creator, broad support |
+| 75-89 | Good | Solid confidence, good metrics |
+| 60-74 | Fair | Moderate risk, mixed signals |
+| 45-59 | Caution | Higher risk, slow momentum or new creator |
+| 0-44 | High Risk | Very new, low participation, or poor history |
+
+---
+
+## Score Updates
+
+### Real-Time Recalculation
+
+Score updates automatically as metrics change:
+
+```solidity
+event ScoreUpdated(
+    address indexed bootstrapper,
+    uint256 newScore,
+    uint256 previousScore,
+    uint256 timestamp
+);
+```
+
+**Update Triggers:**
+- New deposit received (velocity changes)
+- New depositor address (uniqueness changes)
+- Creator verification status updated (social changes)
+- Launch succeeds/fails (reputation changes)
+- 50% target reached (time to target calculated)
+
+### Caching
+
+To save gas, scores cached in 1-hour intervals:
+
+```solidity
+mapping(address => uint256) public lastScoreUpdate;
+mapping(address => uint256) public cachedScore;
+
+function getScore(address bootstrapper) public view returns (uint256) {
+    if (block.timestamp - lastScoreUpdate[bootstrapper] < 1 hours) {
+        return cachedScore[bootstrapper];  // Return cached
+    }
+    return calculateScore(bootstrapper);  // Recalculate
+}
+```
+
+---
+
+## Use Cases
+
+### Use Case 1: LP Comparing Two Launches
+
+```
+Launch A: Score 85
+- Velocity: 85/100 (fast deposits)
+- Uniqueness: 80/100 (60 depositors)
+- Social: 100/100 (verified creator)
+- Reputation: 80/100 (4/5 success)
+- Speed: 90/100 (reached 50% in 1 day)
+
+Launch B: Score 42
+- Velocity: 20/100 (slow deposits)
+- Uniqueness: 30/100 (15 depositors)
+- Social: 0/100 (unverified)
+- Reputation: 50/100 (1/2 success)
+- Speed: 40/100 (not at 50% yet)
+
+LP decision: Likely choose A (higher score + metrics)
+```
+
+### Use Case 2: Investor Due Diligence
+
+```
+Researcher checking PopularityOracle for:
+- Score history (has it improved or declined?)
+- Component breakdown (which metrics are strong?)
+- Comparison to similar projects
+
+Result: Informed decision with transparent data
+```
+
+### Use Case 3: Platform Dashboard
+
+```
+Frontend displays:
+- Score visualization (gauge 0-100)
+- Component breakdown (5 bars)
+- Trend line (score over 7 days)
+- Percentile ranking (top X% of launches)
+
+UX: LPs quickly understand popularity at a glance
+```
+
+---
+
+## Score Gaming & Mitigations
+
+### Attack 1: Whale Farming Deposits
+
+**Vector:** Single address creates multiple accounts to inflate unique depositor count
+
+**Mitigation 1:** Require minimum deposit amount
+```solidity
+require(msg.value >= 0.1 ether, "Min deposit required");
+```
+
+**Mitigation 2:** Off-chain verification of deposits
+- Monitor address clustering patterns
+- Flag suspicious behavior
+- Manual review for extremely high popularity
+
+### Attack 2: Fake Social Verification
+
+**Vector:** Attacker creates verified social media accounts
+
+**Mitigation:** Use robust verification oracle
+```solidity
+- Query Twitter API for blue check status
+- Cross-check GitHub contribution history
+- Require custom verification code from official accounts
+```
+
+### Attack 3: Reputation Recycling
+
+**Vector:** Creator launches 100 tiny spam launches to boost "success rate"
+
+**Mitigation:** Minimum target size
+```solidity
+require(targetLiquidityETH >= 10 ether, "Minimum target");
+```
+
+### Attack 4: Front-Running Score Check
+
+**Vector:** LP checks score, then score drops after TX confirmsance
+
+**Mitigation:** Score is advisory, not enforced
+- LPs can always withdraw after maturity
+- Poor score is warning, not guarantee
+- Historical data available on-chain
+
+---
+
+## Historical Score Tracking
+
+Score history available for analysis:
+
+```solidity
+mapping(address => Score[]) public scoreHistory;
+
+struct Score {
+    uint256 score;
+    uint256 velocity;
+    uint256 uniqueness;
+    uint256 social;
+    uint256 reputation;
+    uint256 speed;
+    uint256 timestamp;
+}
+
+function getScoreHistory(address bootstrapper, uint256 lookbackDays)
+    public view returns (Score[] memory)
+{
+    // Return scores from last N days
+}
+```
+
+### Visualization
+
+Frontend can show:
+- Score trend line
+- Component evolution
+- Comparison to peer launches
+- Best/worst days for launches
+
+---
+
+## Limitations
+
+### Not Guaranteed
+
+Score does not guarantee:
+- Launch success
+- Creator honesty
+- Token value appreciation
+- LP profitability
+
+### Incompleteness
+
+Score based only on on-chain data:
+- No off-chain reputational checks (beyond social)
+- No technical audit inclusion
+- No KYC/identity verification
+
+### Edge Cases
+
+- New creators: Score penalized (no reputation history)
+- Whales: Single large deposit might skew perception
+- Coordinated attack: Multiple accounts can game metrics
+
+---
+
+## Best Practices for LPs
+
+### Do's
+
+✅ Use score as ONE factor in decision-making
+✅ Check creator's past launches
+✅ Verify social media accounts independently
+✅ Review token allocation breakdown
+✅ Understand lock duration implications
+✅ Monitor governance proposals after joining
+
+### Don'ts
+
+❌ Rely solely on popularity score
+❌ Trust unverified creators
+❌ Ignore hard cap or token allocations
+❌ Deposit more than you can afford to lose
+❌ Ignore lock-up period
+❌ Assume high score = guaranteed profit
+
+---
+
+## Future Enhancements (v2+)
+
+- Weighted deposit amounts (large deposits = more weight)
+- Time-based reputation decay (old launches less relevant)
+- Community sentiment scoring (Discord activity, etc.)
+- On-chain auditor endorsements
+- Creator insurance/bonding
+- Multi-chain reputation aggregation
+
+---
+
+## Next Steps
+
+- Review [Mechanics](/mechanics) for detailed flows
+- Check [Reference](/reference) for function specifications
+- Read [Security](/security) for risk mitigations

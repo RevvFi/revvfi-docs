@@ -1,0 +1,459 @@
+# Governance & Voting
+
+RevvFi governance system where LPs collectively control treasury, strategic funds, and protocol parameters.
+
+## Core Principles
+
+1. **Direct Share-Based Voting** — No separate governance token; voting power = share balance
+2. **Linear Weighting** — 1 share = 1 vote weight (no quadratic or delegation in v1)
+3. **Timelocked Execution** — Delays between approval and execution allow LP exits
+4. **Multi-Threshold System** — Different fund types require different approval %
+
+---
+
+## Voting Power
+
+### Calculation
+
+```solidity
+function getVotingPower(address lp) public view returns (uint256) {
+    return bootstrapper.shares(lp);
+}
+```
+
+**Example:**
+```
+LP Alice deposited 50 ETH → shares[Alice] = 50 → voting power = 50
+LP Bob deposited 10 ETH  → shares[Bob] = 10   → voting power = 10
+Total voting power: 60
+
+Alice's vote weight: 50/60 = 83.3%
+Bob's vote weight: 10/60 = 16.7%
+```
+
+### Key Properties
+
+- **Non-Transferable** — Voting power cannot be transferred between LPs
+- **Withdrawable** — Voting power decreases when LP withdraws
+- **Dynamic** — Voting power snapshot taken at proposal creation time
+
+---
+
+## Proposal Types
+
+### Type 0: Treasury Release
+
+**Purpose:** Release tokens from TreasuryVault for project expenses
+
+**Requirements:**
+- Approval: 60% of shares
+- Timelock: 7 days
+- No per-quarter limit
+
+**Valid Uses:**
+- Marketing campaigns
+- Exchange listings
+- Community events
+- Loss coverage
+
+**Execution:**
+```solidity
+proposal.type = 0;
+proposal.target = treasuryVault;
+proposal.data = abi.encodeCall(
+    TreasuryVault.releaseTokens,
+    (recipient, amount, description)
+);
+```
+
+### Type 1: Strategic Reserve Release
+
+**Purpose:** Release tokens from StrategicReserveVault for long-term initiatives
+
+**Requirements:**
+- Approval: 66% of shares (stricter)
+- Timelock: 14 days (longer)
+- Rate limit: Max 25% per calendar quarter
+
+**Valid Uses:**
+- Ecosystem development
+- Strategic partnerships
+- Major integrations
+- Long-term incentives
+
+**Execution:**
+```solidity
+proposal.type = 1;
+proposal.target = strategicReserveVault;
+proposal.data = abi.encodeCall(
+    StrategicReserveVault.releaseTokens,
+    (recipient, amount, description)
+);
+```
+
+**Quarter Reset:** Allowance resets every Q1, Q2, Q3, Q4
+
+### Type 2: Lock Reduction
+
+**Purpose:** Reduce LP lock period (before maturity)
+
+**Requirements:**
+- Approval: 75% of shares (very strict)
+- Creator consent: Required (creator signature)
+- Timelock: 14 days
+
+**Rationale:** Protects creator from surprise early LP exits
+
+**Execution:**
+```solidity
+proposal.type = 2;
+proposal.newLockDuration = 180 days;  // Reduce from 365 to 180
+proposal.creatorSignature = sig;      // Creator approval
+```
+
+**Validation:**
+```solidity
+require(newLockDuration >= MIN_LOCK_DURATION, "Too short");
+require(newLockDuration < currentLockDuration, "Must be reduction");
+require(verifyCreatorSignature(sig), "Creator must approve");
+```
+
+### Type 3: Emergency
+
+**Purpose:** Pause all operations in emergency
+
+**Requirements:**
+- Approval: 80% of shares (highest)
+- Timelock: 48 hours (shortest)
+- Only guardian can execute
+
+**Valid Uses:**
+- Security exploit detected
+- Uniswap issue
+- Unexpected contract behavior
+
+**Execution:**
+```solidity
+proposal.type = 3;
+proposal.action = EMERGENCY_PAUSE;
+// Guardian checks proposal and executes if valid
+```
+
+---
+
+## Proposal Lifecycle
+
+```
+┌─────────────────┐
+│   1. Propose    │ LP creates proposal + proposal data
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  2. Voting      │ LPs vote FOR/AGAINST for duration (e.g., 3 days)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  3. Check Vote  │ votesFor >= threshold% of total votes
+└────────┬────────┘
+         │
+         ├─ If NO  ──→ REJECTED (end)
+         │
+         ├─ If YES ──→ Continue
+         │
+         ▼
+┌─────────────────┐
+│  4. Timelock    │ Wait for timelock duration (7-14 days)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  5. Execute     │ Anyone can execute if timelock passed
+└─────────────────┘
+```
+
+---
+
+## Creating a Proposal
+
+### Step 1: Check Voting Power
+
+```solidity
+require(bootstrapper.shares(msg.sender) > 0, "No voting power");
+```
+
+### Step 2: Call propose()
+
+```solidity
+governance.propose(
+    proposalType: 0,  // Treasury release
+    data: abi.encodeCall(
+        TreasuryVault.releaseTokens,
+        (recipient, amount, description)
+    ),
+    description: "Fund Q1 2025 marketing"
+);
+```
+
+### Step 3: Voting Phase Begins
+
+```solidity
+emit ProposalCreated(proposalId, msg.sender, description);
+```
+
+LPs have voting period (e.g., 3 days) to vote.
+
+---
+
+## Casting a Vote
+
+### Vote FOR (approve)
+
+```solidity
+governance.castVote(proposalId, true);
+```
+
+**Effect:**
+```solidity
+votesFor += shares[msg.sender];
+```
+
+### Vote AGAINST (reject)
+
+```solidity
+governance.castVote(proposalId, false);
+```
+
+**Effect:**
+```solidity
+votesAgainst += shares[msg.sender];
+```
+
+### Voting Rules
+
+- **One vote per LP per proposal:** Cannot vote twice
+- **Vote is by share balance:** Voting power = current shares
+- **Can vote until voting ends:** Window closes after duration
+- **No delegation in v1:** Must vote yourself
+
+### Vote Withdrawal
+
+If LP votes, then withdraws shares:
+- Vote remains counted (snapshot taken at proposal creation)
+- LP's voting power decreases for future proposals
+
+---
+
+## Proposal Execution
+
+### Prerequisites
+
+```solidity
+require(block.timestamp >= proposal.votingEndTime, "Voting not ended");
+require(proposal.votesFor >= threshold, "Threshold not met");
+require(block.timestamp >= proposal.timelockExpires, "Timelock active");
+require(!proposal.executed, "Already executed");
+```
+
+### Execute Treasury Release
+
+```solidity
+governance.executeProposal(proposalId);
+```
+
+**Backend Actions:**
+```solidity
+// Verify approval
+votingPower = bootstrapper.totalShares();
+approvableVotes = (votingPower * 60) / 100;  // 60% threshold
+require(proposal.votesFor >= approvableVotes, "60% threshold not met");
+
+// Check timelock
+require(block.timestamp >= proposal.timelockExpires, "7 days not passed");
+
+// Execute release
+TreasuryVault(target).releaseTokens(recipient, amount);
+
+// Mark executed
+proposal.executed = true;
+emit ProposalExecuted(proposalId);
+```
+
+---
+
+## Vote Calculation Examples
+
+### Example 1: Treasury Release Vote
+
+```
+Launch: 500 total deposited ETH
+Shareholders:
+- Alice: 200 shares (40%)
+- Bob: 150 shares (30%)
+- Charlie: 100 shares (20%)
+- Others: 50 shares (10%)
+
+Threshold: 60% approval
+
+Proposal: Release 50 tokens to marketing
+
+Voting Results:
+- Alice votes FOR: +200 votes
+- Bob votes FOR: +150 votes
+- Charlie votes AGAINST: +100 votes
+- Others don't vote: 0 votes
+
+Total votes: 450 (50 shares didn't vote)
+votesFor: 350
+votesAgainst: 100
+
+Approval % = 350 / (350 + 100) = 77.8%
+77.8% >= 60% ✓ APPROVED
+
+Timelock starts: 7 days
+Execution available after 7 days
+```
+
+### Example 2: Lock Reduction Vote (Fails)
+
+```
+Launch: Same 500 total shares
+
+Proposal: Reduce lock from 365 to 180 days
+
+Threshold: 75% + creator consent
+
+Voting Results:
+- Alice votes FOR: +200 votes
+- Bob votes FOR: +150 votes
+- Charlie votes AGAINST: +100 votes
+- Others vote AGAINST: +50 votes
+
+Total votes: 500
+votesFor: 350
+votesAgainst: 150
+
+Approval % = 350 / 500 = 70%
+70% < 75% ✗ REJECTED (even with creator consent)
+```
+
+---
+
+## Security Properties
+
+### Protection 1: Timelock Allows Exit
+
+If LP disagrees with approved proposal, they have time to withdraw:
+
+```
+Proposal approved at T0
+Timelock: 7 days
+Execution available at T7
+
+LP exits between T0 and T7:
+- Shares burned
+- Voting power removed
+- Cannot be affected by proposal
+```
+
+### Protection 2: Quorum Through Voting
+
+Proposal must receive explicit votes (no abstention-based quorum):
+
+```
+votesFor >= threshold% of (votesFor + votesAgainst)
+// Not threshold% of total shares
+```
+
+This prevents approval by low participation.
+
+### Protection 3: Multi-Threshold System
+
+Different fund types have different thresholds:
+
+```
+Treasury (flexible): 60%
+Strategic (conservative): 66%
+Lock reduction (strict): 75%
+Emergency (maximum): 80%
+```
+
+Prevents casual raiding of important funds.
+
+### Protection 4: Governor-Only Execution
+
+Some proposals require governance address, not LP directly:
+
+```solidity
+require(msg.sender == governance, "Governance only");
+```
+
+---
+
+## Delegate Voting (Future Feature)
+
+**Not in v1, but considered for v2:**
+
+```solidity
+function delegate(address delegatee) public {
+    votes[msg.sender] = address(0);  // Clear previous delegation
+    votes[msg.sender] = delegatee;   // Delegate to delegatee
+}
+
+function getVotingPower(address addr) public view returns (uint256) {
+    if (votes[addr] != address(0)) {
+        return getVotingPower(votes[addr]);  // Recursive delegation
+    }
+    return shares[addr];  // Direct voting power
+}
+```
+
+---
+
+## Common Governance Actions
+
+### Action 1: Request Marketing Funds
+
+```
+Proposer: Marketing Lead LP
+Type: Treasury Release
+Amount: 100 tokens (~$5k)
+Description: "Q1 2025 marketing campaign - Twitter ads, influencers"
+Duration: 3 days voting + 7 days timelock
+Risk: Low (treasury is meant for this)
+```
+
+### Action 2: Emergency Pause
+
+```
+Proposer: Any LP with shares
+Type: Emergency
+Description: "Pause all operations - Uniswap exploit detected"
+Duration: Minimal voting + 48 hours timelock
+Risk: Guardian evaluates before execution
+```
+
+### Action 3: Reduce Lock Period
+
+```
+Proposer: Early-stage LP seeking exit
+Type: Lock Reduction
+Current: 365 days lock
+Proposed: 180 days lock
+Threshold: 75% + creator consent
+Risk: Creator might reject or LPs might reject
+
+Outcomes:
+- Creator rejects: Proposal fails
+- < 75% vote FOR: Proposal fails
+- >= 75% + creator approval: Passes (14 day timelock)
+```
+
+---
+
+## Next Steps
+
+- Learn [Popularity Scoring](/mechanics/popularity) to understand LP evaluation metrics
+- Review [Flows](/mechanics/flows) for detailed transaction flows
+- Check [Reference](/reference) for function signatures

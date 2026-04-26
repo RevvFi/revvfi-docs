@@ -1,0 +1,352 @@
+# Deployment Configuration
+
+RevvFi deployment addresses, network configurations, and setup guides.
+
+## Network Overview
+
+### Primary Networks
+
+RevvFi v1 deploys to Base and Arbitrum as primary targets, with optional Ethereum mainnet support.
+
+| Network | Chain ID | Priority | Status | RPC |
+|---------|----------|----------|--------|-----|
+| Base | 8453 | Primary | Live | https://mainnet.base.org |
+| Arbitrum One | 42161 | Primary | Live | https://arb1.arbitrum.io |
+| Ethereum | 1 | Secondary | Optional | https://eth-mainnet.g.alchemy.com |
+
+---
+
+## Mainnet Deployment Addresses
+
+### Base Mainnet (Chain ID: 8453)
+
+| Contract | Address | Notes |
+|----------|---------|-------|
+| RevvFiFactory | `0x...` | Main entry point |
+| TokenTemplateFactory | `0x...` | ERC20 deployment |
+| RevvFiGovernance | `0x...` | Voting contracts |
+| CreatorProfileRegistry | `0x...` | Creator metadata |
+| PopularityOracle | `0x...` | Popularity scores |
+| Uniswap V2 Router | `0x4752ba5DBc23f44D87826AbeB6c2b7E796aca3d0` | Standard DEX |
+| WETH | `0x4200000000000000000000000000000000000006` | Wrapped ETH |
+
+**Guardian Multisig:** `0x...` (3-of-5)
+**Platform Fee Recipient:** `0x...`
+
+### Arbitrum One Mainnet (Chain ID: 42161)
+
+| Contract | Address | Notes |
+|----------|---------|-------|
+| RevvFiFactory | `0x...` | Main entry point |
+| TokenTemplateFactory | `0x...` | ERC20 deployment |
+| RevvFiGovernance | `0x...` | Voting contracts |
+| CreatorProfileRegistry | `0x...` | Creator metadata |
+| PopularityOracle | `0x...` | Popularity scores |
+| Uniswap V2 Router | `0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506` | Sushiswap alternative |
+| WETH | `0x82aF49447d8a07e3bd95bd0d56f318667581C3F6` | Wrapped ETH |
+
+**Guardian Multisig:** `0x...` (3-of-5)
+**Platform Fee Recipient:** `0x...`
+
+### Ethereum Mainnet (Chain ID: 1)
+
+| Contract | Address | Notes |
+|----------|---------|-------|
+| RevvFiFactory | `0x...` | Main entry point (optional) |
+| TokenTemplateFactory | `0x...` | ERC20 deployment |
+| Uniswap V2 Router | `0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D` | Official Uniswap |
+| WETH | `0xC02aaA39b223FE8D0A0e8e4F27ead9083C756Cc2` | Official WETH |
+
+---
+
+## Testnet Addresses
+
+### Base Sepolia (Chain ID: 84532)
+
+| Contract | Address | Notes |
+|----------|---------|-------|
+| RevvFiFactory | `0x...` | For testing |
+| TokenTemplateFactory | `0x...` | For testing |
+| Uniswap V2 Router | `0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506` | Uniswap testnet |
+| WETH | `0x4200000000000000000000000000000000000006` | Testnet WETH |
+
+**Testnet Faucet:** [Base Faucet](https://docs.base.org/docs/tools/network-faucets)
+
+### Arbitrum Sepolia (Chain ID: 421614)
+
+| Contract | Address | Notes |
+|----------|---------|-------|
+| RevvFiFactory | `0x...` | For testing |
+| Uniswap V2 Router | `0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506` | Uniswap testnet |
+| WETH | `0x980B62Da83eFf3D4576C647993b0c1d6e74dDE5d` | Testnet WETH |
+
+**Testnet Faucet:** [Arbitrum Faucet](https://docs.arbitrum.io/build-decentralized-apps/how-to-use-the-testnet)
+
+### Ethereum Sepolia (Chain ID: 11155111)
+
+| Contract | Address | Notes |
+|----------|---------|-------|
+| RevvFiFactory | `0x...` | For testing (optional) |
+| Uniswap V2 Router | `0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D` | Official Uniswap |
+| WETH | `0xfFf9976782d46CC05630D07AE6146B625F0D9751` | Testnet WETH |
+
+**Testnet Faucet:** [Ethereum Faucet](https://www.sepoliafaucet.com/)
+
+---
+
+## Configuration Parameters
+
+### Launch Config Defaults
+
+```solidity
+struct LaunchConfig {
+    // Token Details
+    string tokenName;              // e.g., "My Token"
+    string tokenSymbol;            // e.g., "MYTKN"
+    uint256 totalSupply;           // e.g., 1,000,000e18
+    
+    // Allocations (must sum to totalSupply)
+    uint256 liquidityAllocation;   // e.g., 250,000e18 (25%)
+    uint256 creatorVestingAmount;  // e.g., 150,000e18 (15%)
+    uint256 treasuryAmount;        // e.g., 250,000e18 (25%)
+    uint256 strategicReserveAmount; // e.g., 200,000e18 (20%)
+    uint256 rewardsAmount;         // e.g., 150,000e18 (15%)
+    
+    // Timing
+    uint256 raiseWindowDuration;   // e.g., 14 days (1,209,600 seconds)
+    uint256 targetLiquidityETH;    // e.g., 100 ether
+    uint256 hardCapETH;            // e.g., 1,000 ether (0 = no cap)
+    uint256 lockDuration;          // e.g., 365 days (31,536,000 seconds)
+    
+    // Creator Vesting
+    uint256 creatorCliffDuration;  // e.g., 365 days (1 year cliff)
+    uint256 creatorVestingDuration;// e.g., 730 days (2 year vesting)
+    
+    // Metadata
+    uint8 templateId;              // 0=Community, 1=Utility, 2=Meme
+    string tokenURI;               // IPFS CID or URL
+}
+```
+
+### Lock Duration Bounds
+
+```solidity
+uint256 constant MIN_LOCK_DURATION = 30 days;       // 2,592,000 seconds
+uint256 constant MAX_LOCK_DURATION = 730 days;      // 63,072,000 seconds
+```
+
+### Governance Thresholds
+
+```solidity
+uint256 constant TREASURY_THRESHOLD = 60;           // 60% approval
+uint256 constant STRATEGIC_THRESHOLD = 66;          // 66% approval
+uint256 constant EMERGENCY_THRESHOLD = 80;          // 80% approval
+uint256 constant LOCK_REDUCTION_THRESHOLD = 75;     // 75% + creator consent
+```
+
+### Timelock Durations
+
+```solidity
+uint256 constant TREASURY_TIMELOCK = 7 days;        // 604,800 seconds
+uint256 constant STRATEGIC_TIMELOCK = 14 days;      // 1,209,600 seconds
+uint256 constant EMERGENCY_TIMELOCK = 48 hours;     // 172,800 seconds
+uint256 constant LOCK_REDUCTION_TIMELOCK = 14 days; // 1,209,600 seconds
+```
+
+### Fees
+
+```solidity
+uint256 constant LAUNCH_FEE = 0.1 ether;            // Creator pays once
+uint256 constant LAUNCH_INCENTIVE = 0.01 ether;     // Caller receives at launch
+```
+
+---
+
+## Integration Guide
+
+### For Dapp Developers
+
+#### 1. Import RevvFi ABI
+
+```typescript
+import RevvFiFactoryABI from '@revvfi/contracts/abi/RevvFiFactory.json';
+import RevvFiBootstrapperABI from '@revvfi/contracts/abi/RevvFiBootstrapper.json';
+```
+
+#### 2. Initialize Contract Instance
+
+```typescript
+import { ethers } from 'ethers';
+
+const provider = new ethers.providers.JsonRpcProvider(
+  'https://mainnet.base.org'
+);
+
+const factory = new ethers.Contract(
+  '0x...', // Base mainnet address
+  RevvFiFactoryABI,
+  provider
+);
+```
+
+#### 3. Create a Launch
+
+```typescript
+const tx = await factory.createLaunch({
+  tokenName: 'My Token',
+  tokenSymbol: 'MYTKN',
+  totalSupply: ethers.utils.parseEther('1000000'),
+  liquidityAllocation: ethers.utils.parseEther('250000'),
+  creatorVestingAmount: ethers.utils.parseEther('150000'),
+  treasuryAmount: ethers.utils.parseEther('250000'),
+  strategicReserveAmount: ethers.utils.parseEther('200000'),
+  rewardsAmount: ethers.utils.parseEther('150000'),
+  raiseWindowDuration: 14 * 24 * 60 * 60,
+  targetLiquidityETH: ethers.utils.parseEther('100'),
+  hardCapETH: ethers.utils.parseEther('1000'),
+  lockDuration: 365 * 24 * 60 * 60,
+  creatorCliffDuration: 365 * 24 * 60 * 60,
+  creatorVestingDuration: 730 * 24 * 60 * 60,
+  templateId: 0,
+  tokenURI: 'ipfs://Qm...'
+}, { value: ethers.utils.parseEther('0.1') }); // Launch fee
+
+await tx.wait();
+```
+
+#### 4. Listen for Launch Events
+
+```typescript
+factory.on('LaunchCreated', (launchId, creator, bootstrapper, token) => {
+  console.log(`Launch ${launchId} created: ${bootstrapper}`);
+});
+```
+
+### For Smart Contract Developers
+
+#### 1. Integrate Governance
+
+```solidity
+import { IRevvFiBootstrapper } from '@revvfi/contracts/interfaces/IRevvFiBootstrapper.sol';
+
+contract MyStrategy {
+    IRevvFiBootstrapper public bootstrapper;
+    
+    function proposeAction(string memory description) public {
+        require(bootstrapper.shares(msg.sender) > 0, "No voting power");
+        // Propose action...
+    }
+}
+```
+
+#### 2. Monitor Governance Events
+
+```solidity
+event ProposalCreated(
+    uint256 indexed proposalId,
+    address indexed proposer,
+    string description
+);
+
+event VoteCast(
+    address indexed voter,
+    uint256 indexed proposalId,
+    uint256 forAgainst,
+    uint256 votingPower
+);
+```
+
+#### 3. Access Token Data
+
+```solidity
+IERC20 token = IERC20(bootstrapper.revvToken());
+uint256 balance = token.balanceOf(msg.sender);
+```
+
+---
+
+## Environment Variables
+
+### For Deployments
+
+```bash
+# RPC Endpoints
+BASE_RPC_URL=https://mainnet.base.org
+ARBITRUM_RPC_URL=https://arb1.arbitrum.io
+ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com
+
+# Multisig Addresses
+GUARDIAN_MULTISIG_BASE=0x...
+GUARDIAN_MULTISIG_ARBITRUM=0x...
+
+# Fee Recipients
+PLATFORM_FEE_RECIPIENT_BASE=0x...
+PLATFORM_FEE_RECIPIENT_ARBITRUM=0x...
+
+# Uniswap Routers
+UNISWAP_ROUTER_BASE=0x4752ba5DBc23f44D87826AbeB6c2b7E796aca3d0
+UNISWAP_ROUTER_ARBITRUM=0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506
+```
+
+### For Frontend
+
+```bash
+REACT_APP_FACTORY_BASE=0x...
+REACT_APP_FACTORY_ARBITRUM=0x...
+REACT_APP_NETWORK=base
+```
+
+---
+
+## Verification
+
+### Verify Contract Deployment
+
+```bash
+# Base Mainnet
+npx hardhat verify --network base 0x... "constructor args"
+
+# Arbitrum
+npx hardhat verify --network arbitrum 0x... "constructor args"
+```
+
+### Check Live Status
+
+```bash
+# Check if factory is working
+curl https://mainnet.base.org \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"0x...","data":"0x..."}]}'
+```
+
+---
+
+## Upgrades & Migrations
+
+### v1 → v2 Upgrade Path
+
+**Contracts to Upgrade:**
+- RevvFiFactory
+- RevvFiGovernance
+- TokenTemplateFactory
+- CreatorProfileRegistry
+- PopularityOracle
+
+**Contracts NOT Upgraded:**
+- RevvFiBootstrapper (per-launch, immutable)
+- All vault contracts (per-launch, immutable)
+
+**Migration Steps:**
+1. Deploy new factory contracts
+2. Update registry to point to new factory
+3. Existing launches continue operating
+4. New launches use new factory
+
+---
+
+## Next Steps
+
+- Review [Gas Estimates](/reference/gas-estimates) for transaction costs
+- Read [Glossary](/reference/glossary) for terminology
+- Check [Events & Errors](/reference/events) for event specs

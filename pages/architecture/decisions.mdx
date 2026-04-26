@@ -1,0 +1,300 @@
+# Architectural Decisions
+
+This document details the six core architectural decisions that shape RevvFi's design.
+
+## Decision 1: Per-Token Contract Isolation
+
+**Decision:** RevvFi deploys a new set of contracts for every token launch.
+
+**Rationale:**
+- Isolates each launch's funds → prevents cross-contamination
+- Enables independent maturity periods → flexibility for projects
+- Per-token governance parameters → customization
+- Simplifies audits → each launch is a sealed unit
+- Enables parallel launches → no shared bottlenecks
+
+**Contracts deployed per launch:**
+
+1. **RevvFiBootstrapper** — Primary orchestrator
+2. **CreatorVestingVault** — Creator token lock
+3. **TreasuryVault** — LP-governed treasury
+4. **StrategicReserveVault** — Strict governance fund
+5. **RewardsDistributor** — Scheduled emissions
+
+**Impact on Users:**
+- LPs get fresh governance instances per launch
+- Creators have isolated reputation per project
+- No shared treasury → no pooled risks
+
+---
+
+## Decision 2: Global Share Ledger (No Separate Governance Token)
+
+**Decision:** RevvFi does not deploy a separate ERC20 receipt token per launch. LP shares are tracked internally and serve as governance instruments. **No separate REVV token in version one.**
+
+**Properties of the Share Ledger:**
+
+```solidity
+mapping(address => uint256) public shares;  // LP address to share amount
+uint256 public totalShares;                 // Total shares outstanding
+```
+
+**Characteristics:**
+- Shares minted 1:1 with ETH deposited
+- Shares are **non-transferable**
+- Shares burned upon withdrawal
+- Voting power = share balance (linear weighting)
+- **Shares ARE the governance instrument** — no token layer needed
+
+**Rationale:**
+- Eliminates contract proliferation → saves deployment gas
+- Reduces tokenomics overhead → simpler UX
+- No staking mechanics needed → direct governance
+- Shares directly map to LP positions → transparent
+- Easier audits → fewer token standards to review
+
+**Comparison: With vs Without Separate Token**
+
+| Aspect | With REVV Token | Without (RevvFi v1) |
+|--------|-----------------|---------------------|
+| Contracts per launch | 6 | 5 |
+| Governance token deployments | 1 per launch | 0 |
+| LP UX complexity | High (stake REVV) | Low (direct shares) |
+| Voting power tracking | Via REVV balance | Via share balance |
+| Governance mechanics | Token delegation | Direct ledger |
+| Gas overhead | Higher | Lower |
+
+**Impact on Users:**
+- LPs don't need to manage a separate governance token
+- Voting power is automatic based on ETH deposit
+- Simpler wallet integrations
+- Lower transaction costs
+
+---
+
+## Decision 3: Treasury Vault Requirement
+
+**Decision:** `TreasuryVault` is **required** for every launch.
+
+**Rationale:**
+The treasury vault serves as LP loss-mitigation and project control. If omitted:
+
+- Non-creator, non-liquidity tokens would be locked indefinitely OR
+- Creator would control all reserve funds (defeats LP governance)
+- LPs would have no way to cover losses if token price crashes
+- Project would have no accessible funds for marketing/listings
+
+**Treasury Properties:**
+- Created for every launch (mandatory)
+- Creator has **zero** access (enforced at contract level)
+- LPs vote to release treasury funds via governance
+- 60% approval threshold
+- 7-day timelock
+
+**Treasury Can Fund:**
+- Loss coverage if token price declines
+- Marketing and development expenses
+- Exchange listings and infrastructure
+- Community initiatives and incentives
+- Strategic partnerships
+
+**Enforcement:**
+```solidity
+require(treasuryVault != address(0), "Treasury required");
+// Treasury transfers require RevvFiGovernance approval
+// Creator cannot call treasury release functions
+```
+
+**Impact on Projects:**
+- Creators lose direct control of reserves (intentional)
+- LPs gain collective loss-mitigation capability
+- Treasury provides emergency fund if launch struggles
+- Community alignment on fund usage
+
+---
+
+## Decision 4: Explicit Maturity Time Definition
+
+**Decision:** Maturity time is explicitly defined using a clear formula.
+
+**Formula:**
+```
+maturityTime = raiseEndTime + lockDuration
+```
+
+**Where:**
+- `raiseEndTime` = Timestamp when deposit window closes
+- `lockDuration` = Duration LPs must wait after launch before withdrawal
+- Defined by creator in `LaunchConfig`
+
+**Validation Boundaries:**
+- `MIN_LOCK_DURATION` = 30 days (2,592,000 seconds)
+- `MAX_LOCK_DURATION` = 730 days (63,072,000 seconds)
+
+**Why Explicit Formula:**
+- Removes ambiguity → clear withdrawal window
+- Prevents manipulation → bounds set in advance
+- Enables composability → other contracts can verify maturity
+- User-friendly → LPs know exactly when they can withdraw
+
+**Implementation:**
+
+```solidity
+constructor(LaunchConfig memory config) {
+    raiseEndTime = block.timestamp + config.raiseWindowDuration;
+    lockDuration = config.lockDuration;
+    require(lockDuration >= MIN_LOCK_DURATION, "Lock too short");
+    require(lockDuration <= MAX_LOCK_DURATION, "Lock too long");
+}
+
+function launch() external {
+    // ... liquidity deployment
+    maturityTime = raiseEndTime + lockDuration;  // Set at launch
+}
+```
+
+**Impact on LPs:**
+- Perfect transparency on lock period
+- No surprises after launch
+- Can plan cash flow around maturity date
+- Governance cannot extend lock without explicit vote
+
+---
+
+## Decision 5: Uniswap V2 Integration (Fixed Choice)
+
+**Decision:** RevvFi uses **Uniswap V2 exclusively** in version one. Each launch creates a dedicated Uniswap V2 pair between the new token and WETH.
+
+**Why Uniswap V2:**
+- Battle-tested and audited
+- Lower gas than V3 concentrated liquidity
+- Simple integration for new projects
+- High TVL and reliable swap routing
+- Easier to compose with other protocols
+
+**LP Token Handling:**
+- RevvFiBootstrapper holds Uniswap V2 LP tokens **directly**
+- LPs never receive V2 LP tokens
+- RevvFiBootstrapper withdraws liquidity on behalf of LPs
+- Withdrawal logic handles slippage protection
+
+**Potential V3 in Later Versions:**
+- V3 support could be added as opt-in feature
+- Concentrated liquidity for better capital efficiency
+- Higher complexity, optional for v1
+
+**Impact on LPs:**
+- Predictable swap prices via Uniswap v2 AMM
+- Standard DEX mechanics everyone understands
+- High liquidity on supported networks
+- Easy token selling after lock period
+
+---
+
+## Decision 6: Modular Vault Architecture
+
+**Decision:** Each launch has four specialized vaults handling different token allocations:
+
+### Vault 1: CreatorVestingVault
+
+```solidity
+struct CreatorVesting {
+    uint256 totalAmount;
+    uint256 releasedAmount;
+    uint256 startTime;
+    uint256 cliffDuration;
+    uint256 vestingDuration;
+}
+```
+
+**Purpose:** Hold creator's tokens with protection against rug pulls
+
+**Release Formula:**
+```
+if block.timestamp < startTime + cliff: return 0
+if block.timestamp >= startTime + cliff + duration: return totalAmount
+else: return (totalAmount × elapsed / duration) - releasedAmount
+```
+
+**Lock Details:**
+- Creator specifies cliff (e.g., 1 year before any release)
+- Then linear vesting (e.g., 2 more years to fully unlock)
+- Multi-sig still cannot "instantaneously" drain
+- Prevents immediate rug pulls
+
+### Vault 2: TreasuryVault
+
+**Purpose:** LP-controlled reserve for loss mitigation and project expenses
+
+**Control:**
+- 60% LP approval required
+- 7-day timelock
+- Creator has zero access
+- Can be used to cover losses
+
+### Vault 3: StrategicReserveVault
+
+**Purpose:** Long-term project funding with stricter controls
+
+**Control:**
+- 66% LP approval (stricter than treasury)
+- 14-day timelock (longer delays)
+- Max 25% per quarter (rate limiting)
+- Strategic partnerships, ecosystem development
+
+### Vault 4: RewardsDistributor
+
+**Purpose:** Scheduled community rewards emissions
+
+**Characteristics:**
+- Fixed allocation at launch (not volume-dependent)
+- Time-based distribution schedule
+- Can emit to farming, staking, or community programs
+- Fully transparent vesting schedule
+
+**Why Modular:**
+- Clear separation of concerns
+- Different governance thresholds for different funds
+- LPs understand where each token goes
+- Easier to audit and monitor
+- Prevents single-point-of-failure
+
+---
+
+## Response to Co-Founder Feedback (v2.0)
+
+| Suggestion | Decision | Rationale |
+|-----------|----------|-----------|
+| Internal shares as governance, no REVV token | ✅ Adopted | Simpler, no additional tokenomics. Shares directly = voting power. |
+| Treasury contract necessity review | ✅ Adopted | Treasury is essential for LP loss mitigation. Required for every launch. |
+| Explicit refund logic for failed launches | ✅ Adopted | Added `refundLP()` function with proportional ETH claims after failure. |
+| Minimal fee for token creation | ✅ Adopted | 0.1 ETH launch fee prevents spam, sent to platform treasury. |
+| Define maturityTime properly | ✅ Adopted | Explicit formula: `raiseEndTime + lockDuration`. Validated on launch. |
+| Points-based popularity system | ✅ Adopted | PopularityOracle calculates 0-100 score from on-chain metrics. |
+
+---
+
+## Future Enhancements (v2+)
+
+### Potential Additions
+- Uniswap V3 support for concentrated liquidity
+- Multiple DEX integrations (Curve, Balancer)
+- Stableswap options for token-to-stablecoin pairs
+- Customizable governance thresholds
+- Multi-sig signer requirements for creator vesting
+- Cross-chain launches via bridges
+
+### Kept Out of v1
+- Complex tokenomics (fully dynamic fees, etc.)
+- Liquidity farming directly in RevvFi
+- Cross-protocol integrations
+- Advanced governance features (quadratic voting, delegation)
+- Custom vesting curve designs
+
+---
+
+## Next Steps
+
+- Explore [Smart Contracts](/architecture/contracts) for implementation details
+- Review [Data Structures](/architecture/data-structures) for storage patterns
+- Check [Deployment](/architecture/deployment) for network configuration

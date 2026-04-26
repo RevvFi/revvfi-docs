@@ -1,0 +1,432 @@
+# Security Overview
+
+Security boundaries, threat models, and mitigations for RevvFi.
+
+## Trust Model
+
+```
+┌─────────────┐
+│   Creator   │ ← Should NOT be trusted with:
+└─────────────┘   • Treasury funds
+                  • Creator vesting (timelock protection)
+                  • LP vote outcomes
+                  • Lock duration changes
+
+┌─────────────┐
+│ Liquidity   │ ← Collectively trusted to:
+│ Providers   │   • Govern treasury
+└─────────────┘   • Vote on strategic decisions
+                  • Approve proposal execution
+
+┌─────────────┐
+│  Uniswap V2 │ ← Fully trusted
+└─────────────┘   (audited, battle-tested)
+
+┌─────────────┐
+│  Guardian   │ ← Trusted only for:
+│  Multisig   │   • Emergency pause
+└─────────────┘   • No fund access
+```
+
+---
+
+## Security Boundaries
+
+### Boundary 1: Creator Control Restrictions
+
+**What Creators CAN Do:**
+- Set lock duration (30-730 days) before launch
+- Define token allocations at creation
+- Claim tokens during vesting schedule (after cliff)
+
+**What Creators CANNOT Do:**
+- Directly access treasury funds
+- Modify lock duration after launch
+- Pause withdrawals (only guardian can)
+- Transfer LPs' locked shares
+- Change vesting cliff retroactively
+- Access strategic reserve
+
+**Enforcement Mechanisms:**
+
+1. **Vesting Vault**
+   ```solidity
+   // No early access to creator tokens
+   function release() public {
+       require(
+           block.timestamp >= startTime + cliffDuration,
+           "Cliff not reached"
+       );
+   }
+   ```
+
+2. **Treasury Vault**
+   ```solidity
+   // Creator cannot call release functions
+   // Only governance can execute releases
+   require(msg.sender == governance, "Not governance");
+   ```
+
+3. **Immutable Allocations**
+   ```solidity
+   // Token amounts set at creation, cannot change
+   // Enforced in constructor, no setter functions
+   ```
+
+### Boundary 2: LP Fund Protection
+
+**Protections in Place:**
+
+1. **Non-Transferable Shares**
+   - Shares cannot be transferred between LPs
+   - Voting power = direct share balance
+   - Cannot be siphoned or stolen
+
+2. **Proportional Withdrawal Rights**
+   ```solidity
+   // Each LP can only withdraw proportional amount
+   uint256 lpShare = shares[msg.sender];
+   uint256 totalLpAllocation = (lpShare * totalPoolAssets) / totalShares;
+   ```
+
+3. **Locked Period**
+   - LPs cannot withdraw before maturityTime
+   - Created contracts use 30-730 day locks
+   - Prevents impulse decisions
+
+4. **Transparent Lock Duration**
+   - Lock duration set by creator before launch
+   - Cannot be changed after launch without 75% governance vote
+   - Formula: `maturityTime = raiseEndTime + lockDuration`
+
+### Boundary 3: Launch Fee Security
+
+**Purpose:** Prevent Sybil attacks and spam
+
+**Mechanism:**
+- 0.1 ETH fee required to create launch
+- Non-refundable (even if launch fails)
+- Sent to platform treasury
+
+**Protection Rationale:**
+```
+Without fee:
+- Attacker could create 1000 spam launches
+- Clog network, hurt LP UX
+- No cost to attacker
+
+With 0.1 ETH fee:
+- Cost = 0.1 ETH × 1000 = 100 ETH (~$300k)
+- Economic barrier prevents abuse
+```
+
+### Boundary 4: Refund Safety
+
+**Preconditions for Refund:**
+```solidity
+require(!launched, "Already launched");
+require(block.timestamp > raiseEndTime, "Still depositing");
+require(totalDepositedETH < targetLiquidityETH, "Target met");
+```
+
+**Proportional Claim:**
+```solidity
+uint256 ethAmount = shares[msg.sender];
+// LP gets exactly what they deposited
+// No fee deduction for failed launches
+```
+
+**Reentrancy Protection:**
+```solidity
+refundClaimed[msg.sender] = true;  // Mark claimed BEFORE transfer
+shares[msg.sender] = 0;             // Update state BEFORE transfer
+(bool success, ) = msg.sender.call{value: ethAmount}("");
+```
+
+---
+
+## Attack Vectors & Mitigations
+
+### Attack 1: Creator Rug Pull
+
+**Vector:** Creator drains treasury or vesting vault immediately
+
+**Mitigations:**
+1. **Treasury:** Requires 60% LP governance vote + 7-day timelock
+2. **Vesting:** Cliff period (e.g., 1 year) + linear vesting
+3. **Strategic Reserve:** 66% vote + 14-day timelock + 25% per quarter limit
+4. **Enforcement:** Zero creator access at contract level
+
+**Risk Level:** 🟢 Mitigated
+
+---
+
+### Attack 2: LP Share Stealing
+
+**Vector:** Attacker tries to transfer another LP's shares
+
+**Mitigation:**
+```solidity
+// Shares are not transferable
+// No transfer() function exists
+// Only minting on deposit, burning on withdraw
+```
+
+**Risk Level:** 🟢 Mitigated
+
+---
+
+### Attack 3: Premature Withdrawal
+
+**Vector:** LP tries to withdraw before maturityTime
+
+**Mitigation:**
+```solidity
+require(block.timestamp >= maturityTime, "Still locked");
+```
+
+**Risk Level:** 🟢 Mitigated
+
+---
+
+### Attack 4: Double Refund Claim
+
+**Vector:** LP tries to claim refund twice
+
+**Mitigation:**
+```solidity
+require(!refundClaimed[msg.sender], "Already claimed");
+refundClaimed[msg.sender] = true;  // Mark before transfer
+```
+
+**Risk Level:** 🟢 Mitigated
+
+---
+
+### Attack 5: Governance Vote Manipulation
+
+**Vector:** LP with large share balance manipulates voting
+
+**Mitigations:**
+1. **Quorum Requirements:** Minimum participation thresholds
+2. **Timelock Delays:** 7-14 day delays allow LPs to exit if disagreeing
+3. **Transparent Voting:** All votes recorded on-chain
+4. **Multi-threshold System:** Different thresholds for different proposals
+
+**Risk Level:** 🟡 Requires LP vigilance
+
+---
+
+### Attack 6: Popularity Score Gaming
+
+**Vector:** Attacker creates fake accounts to inflate deposit count
+
+**Mitigations:**
+1. **On-chain Only:** Score uses only on-chain metrics
+2. **Multiple Signals:** Combines deposit velocity, unique users, time-to-target
+3. **Off-chain Verification:** Social verification (Twitter/GitHub) adds weight
+4. **Advisory Role:** Score is advisory, not binding
+
+**Risk Level:** 🟡 Moderate (score is advisory only)
+
+---
+
+### Attack 7: Uniswap Front-Running
+
+**Vector:** Attacker MEV-attacks Uniswap pair during launch
+
+**Mitigation:**
+```solidity
+// Slippage protection on Uniswap interactions
+minTokenOut = expectedTokens * 99 / 100;  // 1% slippage max
+minEthOut = expectedETH * 99 / 100;
+
+// Large liquidity deploys are less vulnerable
+// But still possible during high network congestion
+```
+
+**Risk Level:** 🟡 Possible (standard DEX risk)
+
+---
+
+### Attack 8: Governance Griefing
+
+**Vector:** Attacker creates endless proposals to spam governance
+
+**Mitigations:**
+1. **Proposal Threshold:** Proposer needs minimum shares
+2. **Voting Costs:** Gas fees create cost barrier
+3. **Timelock:** Delays between proposals and execution
+4. **Admin Veto:** Guardian can pause in emergency
+
+**Risk Level:** 🟡 Possible but costly
+
+---
+
+## Security Assumptions
+
+### Network Assumptions
+
+1. **Block Timestamps:** Honest miners won't manipulate timestamps more than a few seconds
+2. **No Network Partition:** No extended network partitions
+3. **Finality:** Transactions are irreversible within 15 minutes
+
+### Smart Contract Assumptions
+
+1. **Uniswap V2:** Contract code is correct and will not be upgraded
+2. **WETH:** Standard ERC20 implementation, no unexpected failures
+3. **No Reentrancy:** Reentrancy-safe through state updates before transfers
+
+### Governance Assumptions
+
+1. **LPs Participate:** LPs will monitor and vote on important proposals
+2. **No Collusion:** LPs won't coordinate to attack treasury/vault
+3. **Rational Behavior:** LPs act in self-interest, not maliciously
+
+---
+
+## Audit Recommendations
+
+### Critical Areas
+
+1. **Refund Logic**
+   - Test double-refund scenarios
+   - Verify proportional calculations
+   - Test with extreme share distributions
+
+2. **Governance Voting**
+   - Test threshold calculations
+   - Verify timelock enforcement
+   - Test vote delegation (if added)
+
+3. **Uniswap Integration**
+   - Test liquidity add/remove edge cases
+   - Verify slippage handling
+   - Test with extreme token values
+
+4. **Vault Access Control**
+   - Verify creator cannot access vaults
+   - Test permission checks
+   - Test with multi-sig delays
+
+### Fuzzing Targets
+
+- `depositETH()` with edge case amounts
+- `withdrawAsAssets()` with extreme share ratios
+- `launch()` with boundary-crossing deposit amounts
+- `propose()` and `castVote()` with extreme voting powers
+
+### Static Analysis
+
+- All state variables are properly initialized
+- No unprotected critical functions
+- All require statements are present
+- No hardcoded addresses
+
+---
+
+## Operations Security
+
+### Guardian Multisig Recommendations
+
+1. **Signer Composition:**
+   - 3-of-5 multisig minimum
+   - Signers from different organizations
+   - No single entity controls > 1 signer
+
+2. **Emergency Procedures:**
+   - Pause mechanism tested quarterly
+   - Unpause procedure documented
+   - Communication channels pre-established
+
+3. **Key Management:**
+   - Keys stored in hardware wallets
+   - No keys on servers
+   - Backup keys stored in secure location
+
+### Network Operations
+
+1. **Deployment:**
+   - Deploy to testnet first
+   - Verify contract bytecode matches source
+   - Announce deployment in advance
+
+2. **Monitoring:**
+   - Monitor unusual deposit patterns
+   - Alert on large governance proposals
+   - Track platform fee distributions
+
+---
+
+## Incident Response
+
+### If Launch Fails Unexpectedly
+
+1. **Immediate:**
+   - Guardian pauses all new launches
+   - Verify state of affected contracts
+
+2. **Analysis:**
+   - Identify root cause
+   - Determine if issue is systemic
+
+3. **Recovery:**
+   - If possible, LP can claim refund
+   - If Uniswap issue, retry after network stabilizes
+
+### If Governance Vote Passes Unexpectedly
+
+1. **Immediate:**
+   - Check vote results
+   - Verify voter lists
+
+2. **If Invalid:**
+   - Execute governance pause
+   - Create new proposal to revert action
+
+### If LP Reports Missing Funds
+
+1. **Immediate:**
+   - Check on-chain balance
+   - Verify withdrawal amounts
+
+2. **Analysis:**
+   - Check if withdrawal was actually executed
+   - Verify Uniswap pair state
+
+3. **Communication:**
+   - Provide on-chain evidence to LP
+   - Document incident
+
+---
+
+## Compliance & Legal
+
+### Disclaimer
+
+RevvFi is experimental software. Users participate at their own risk.
+
+- No guarantees of fund recovery
+- Markets are volatile
+- Smart contracts may have undiscovered bugs
+- LPs should only deposit amounts they can afford to lose
+
+### KYC/AML
+
+- RevvFi does not perform KYC/AML
+- Creators can optionally verify via CreatorProfileRegistry
+- Platform cannot freeze accounts
+
+### Tax Implications
+
+- Deposits may be taxable events
+- Withdrawals may trigger capital gains
+- Users responsible for tax reporting
+
+---
+
+## Next Steps
+
+- Review [Smart Contracts](/architecture/contracts) for implementation details
+- Check [Deployment Config](/reference/deployment) for mainnet addresses
+- Read [Glossary](/reference/glossary) for security terminology

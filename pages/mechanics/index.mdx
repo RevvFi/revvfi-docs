@@ -1,0 +1,162 @@
+# Mechanics Overview
+
+This section explains how RevvFi works in practice: from initial deposits through launch, governance, and withdrawals.
+
+## The RevvFi Lifecycle
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ Phase 1: Setup (1 transaction)                           │
+│ - Creator calls RevvFiFactory.createLaunch()             │
+│ - Pays 0.1 ETH fee                                       │
+│ - All contracts deployed                                 │
+│ - Token minted to bootstrapper                           │
+│ - Deposit window opens                                   │
+└──────────────────────────────────────────────────────────┘
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│ Phase 2: Deposits (user transactions)                    │
+│ - LPs call bootstrapper.depositETH()                     │
+│ - ETH tracked, shares minted 1:1                         │
+│ - Any amount up to hardCap (if set)                      │
+│ - Window closes at raiseEndTime                          │
+│                                                          │
+│ Condition A: If targetLiquidityETH reached              │
+│   → Proceed to Phase 3 (Launch)                          │
+│                                                          │
+│ Condition B: If targetLiquidityETH NOT reached          │
+│   → Skip to Phase 5A (Refunds)                           │
+└──────────────────────────────────────────────────────────┘
+                      ↓ (if Condition A)
+┌──────────────────────────────────────────────────────────┐
+│ Phase 3: Launch (permissionless, 1 transaction)          │
+│ - Anyone calls bootstrapper.launch()                     │
+│ - Requires: target reached + deposits closed            │
+│ - Actions:                                               │
+│   • Set maturityTime = raiseEndTime + lockDuration      │
+│   • Deploy Uniswap V2 pair (REVV/WETH)                  │
+│   • Add liquidity: all ETH + liquidityAllocation tokens │
+│   • Transfer vault allocations to vaults                │
+│   • Caller receives 0.01 ETH incentive                  │
+└──────────────────────────────────────────────────────────┘
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│ Phase 4: Lock & Governance (lockDuration)               │
+│ - LPs cannot withdraw until maturityTime                │
+│ - LPs CAN vote on governance proposals:                 │
+│   • Treasury releases (60%, 7-day timelock)             │
+│   • Strategic reserve (66%, 14-day timelock)            │
+│   • Emergency actions (80%, 48-hour timelock)           │
+│ - Creator vesting cliff begins (e.g., 1 year)           │
+│ - Popularity score updated with on-chain metrics         │
+└──────────────────────────────────────────────────────────┘
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│ Phase 5: Withdrawal (after maturityTime)                │
+│ - LPs call withdrawAsAssets() OR withdrawAsETH()        │
+│ - Option A: withdrawAsAssets()                          │
+│   • Receive ETH + tokens proportionally                 │
+│   • Full exposure to token performance                  │
+│ - Option B: withdrawAsETH()                             │
+│   • Swap tokens to ETH first                            │
+│   • Minimize token exposure                             │
+│ - Shares burned, position closed                        │
+└──────────────────────────────────────────────────────────┘
+
+(Alternative Path: If Condition B)
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│ Phase 5A: Refunds (after raiseEndTime + failed check)   │
+│ - Launch never happened (target not reached)            │
+│ - First LP calls refundLP() → sets failed = true        │
+│ - All LPs call refundLP() to claim proportional ETH     │
+│ - NO tokens received (never deployed)                   │
+│ - Launch fee (0.1 ETH) NOT refunded (to platform)      │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Parameters by Phase
+
+### Phase 1: Creation
+
+| Parameter | Set By | Example | Notes |
+|-----------|--------|---------|-------|
+| `tokenName` | Creator | "MyToken" | ERC20 token name |
+| `tokenSymbol` | Creator | "MYTKN" | ERC20 ticker |
+| `totalSupply` | Creator | 1,000,000 | Total minted once |
+| `liquidityAllocation` | Creator | 250,000 | Tokens for Uniswap pair |
+| `raiseWindowDuration` | Creator | 14 days | How long to accept deposits |
+| `targetLiquidityETH` | Creator | 100 ETH | Min ETH to launch |
+| `hardCapETH` | Creator | 1,000 ETH | Max ETH (0 = no cap) |
+| `lockDuration` | Creator | 365 days | LP lock period |
+| Launch Fee | Platform | 0.1 ETH | Paid by creator |
+
+### Phase 2: Deposits
+
+| Metric | Controlled By | Notes |
+|--------|---------------|-------|
+| Each LP's deposit | LP | Any amount ≥ 0.01 ETH |
+| LP's share balance | System | Minted 1:1 with ETH |
+| Voting power | LP's shares | Used for governance |
+| Total deposited | LPs collectively | Visible in real-time |
+
+### Phase 3: Launch
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Launch callable after | raiseEndTime + 1 block | Deposits must close first |
+| Minimum deposits | targetLiquidityETH | Checked at launch |
+| Caller incentive | 0.01 ETH | Rewards permissionless caller |
+| Fee to platform | 0.1 ETH | Already collected at Phase 1 |
+
+### Phase 4: Lock Period
+
+| Duration | Minimum | Maximum | Notes |
+|----------|---------|---------|-------|
+| lockDuration | 30 days | 730 days | Set by creator, fixed at launch |
+| maturityTime | raiseEndTime + 30 days | raiseEndTime + 730 days | When LPs can withdraw |
+
+### Phase 5: Withdrawals
+
+| Option | Output | Notes |
+|--------|--------|-------|
+| withdrawAsAssets() | ETH + tokens | Proportional to shares |
+| withdrawAsETH() | ETH only | Tokens auto-swapped |
+
+---
+
+## State Transitions
+
+```solidity
+enum LaunchState {
+    SETUP,           // Contracts deployed
+    DEPOSIT_OPEN,    // Accepting LP deposits
+    DEPOSIT_CLOSED,  // raiseEndTime reached
+    LAUNCHED,        // Liquidity deployed to Uniswap
+    MATURED,         // maturityTime reached, LPs can withdraw
+    FAILED,          // Target not reached, refunds available
+    EMERGENCY_PAUSED // Guardian paused deposits
+}
+```
+
+**State Flow:**
+
+```
+SETUP → DEPOSIT_OPEN → DEPOSIT_CLOSED
+                          ├─→ (if target reached) LAUNCHED → MATURED
+                          └─→ (if target not reached) FAILED
+```
+
+**Guardian Actions:**
+- DEPOSIT_OPEN → EMERGENCY_PAUSED (blocks new deposits)
+- No state change affects already-deposited ETH
+
+---
+
+## Next Steps
+
+- Explore [System Flows](/mechanics/flows) for detailed transaction flows
+- Learn [Governance & Voting](/mechanics/governance) mechanics
+- Understand [Popularity Scoring](/mechanics/popularity) for LP evaluation

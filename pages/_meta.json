@@ -1,0 +1,18 @@
+{
+  "index": "Home",
+  "architecture": "Architecture",
+  "mechanics": "Mechanics",
+  "reference": "Reference",
+  "security": "Security",
+  "-- Support": {
+    "type": "separator"
+  },
+  "github": {
+    "title": "GitHub",
+    "href": "https://github.com/RevvFi"
+  },
+  "discord": {
+    "title": "Discord",
+    "href": "https://discord.gg/KJ3ttJq5D3"
+  }
+}

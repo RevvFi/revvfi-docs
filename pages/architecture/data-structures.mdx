@@ -1,0 +1,439 @@
+# Data Structures
+
+Detailed specifications for all RevvFi data structures and storage patterns.
+
+---
+
+## Core Structures
+
+### LaunchConfig
+
+**Purpose:** Immutable configuration for each launch, set at creation time
+
+```solidity
+struct LaunchConfig {
+    // Token Identity
+    string tokenName;              // ERC20 token name
+    string tokenSymbol;            // ERC20 ticker symbol
+    uint256 totalSupply;           // Total tokens minted (fixed, permanent)
+    
+    // Token Allocations (must sum to totalSupply)
+    uint256 liquidityAllocation;   // For Uniswap V2 pair
+    uint256 creatorVestingAmount;  // Creator's tokens (with cliff/vesting)
+    uint256 treasuryAmount;        // LP-governed treasury
+    uint256 strategicReserveAmount; // LP-governed strategic fund
+    uint256 rewardsAmount;         // Community rewards distribution
+    
+    // Raise Parameters
+    uint256 raiseWindowDuration;   // Seconds deposit window stays open
+    uint256 targetLiquidityETH;    // Minimum ETH required to launch
+    uint256 hardCapETH;            // Maximum ETH accepted (0 = no cap)
+    
+    // Lock Period
+    uint256 lockDuration;          // Seconds LPs must wait after launch
+    // Validates: 30 days ≤ lockDuration ≤ 730 days
+    
+    // Creator Vesting
+    uint256 creatorCliffDuration;  // Cliff period (no release)
+    uint256 creatorVestingDuration; // Linear vesting after cliff
+    
+    // Metadata
+    uint8 templateId;              // Token type: 0=Community, 1=Utility, 2=Meme
+    string tokenURI;               // IPFS/Arweave metadata link
+}
+```
+
+**Immutability:**
+- Set once in `RevvFiFactory.createLaunch()`
+- Stored in bootstrapper contract
+- Cannot be modified after creation
+
+**Validation:**
+```solidity
+require(
+    liquidityAllocation + creatorVestingAmount + treasuryAmount +
+    strategicReserveAmount + rewardsAmount == totalSupply,
+    "Allocations must sum to totalSupply"
+);
+
+require(targetLiquidityETH > 0, "Target must be positive");
+require(hardCapETH == 0 || hardCapETH >= targetLiquidityETH, "Cap < target");
+require(lockDuration >= 30 days && lockDuration <= 730 days, "Invalid lock");
+```
+
+---
+
+### LaunchMetadata
+
+**Purpose:** Registry entry for each launch
+
+```solidity
+struct LaunchMetadata {
+    uint256 launchId;              // Unique launch identifier
+    address creator;               // Creator's address
+    address bootstrapper;          // RevvFiBootstrapper contract address
+    address tokenAddress;          // Deployed ERC20 token address
+    uint256 createdAt;             // Block timestamp of creation
+    
+    // Status Flags
+    bool active;                   // True if launch not completed/failed
+    bool launched;                 // True after liquidity deployed
+    bool failed;                   // True if target not reached
+    
+    // Key Dates
+    uint256 raiseEndTime;          // When deposit window closes
+    uint256 maturityTime;          // When LPs can withdraw
+    
+    // Deposit Tracking
+    uint256 targetLiquidityETH;    // Minimum required
+    uint256 totalDepositedETH;     // Current/final amount
+    uint256 totalShares;           // Shares outstanding
+    
+    // Popular Oracle
+    uint256 popularityScore;       // 0-100 score
+    uint256 lastScoreUpdate;       // Timestamp of last update
+}
+```
+
+**Stored in:**
+```solidity
+mapping(uint256 => LaunchMetadata) public launches;
+mapping(address => LaunchMetadata) public launchesByBootstrapper;
+```
+
+---
+
+### RevvFiBootstrapper State
+
+**Purpose:** Per-launch contract holding all LP funds and state
+
+```solidity
+contract RevvFiBootstrapper {
+    // Immutable Config
+    address public creator;
+    address public revvToken;
+    address public weth;
+    address public uniswapRouter;
+    address public uniswapPair;
+    
+    // Deposits & Shares
+    mapping(address => uint256) public shares;      // LP → share count
+    uint256 public totalShares;                     // Sum of all shares
+    mapping(address => uint256) public deposits;    // LP → ETH deposited (for history)
+    uint256 public totalDepositedETH;               // Total ETH pooled
+    
+    // Uniswap Integration
+    uint256 public uniLPTokenAmount;                // Uniswap LP tokens held
+    
+    // Launch Parameters
+    uint256 public targetLiquidityETH;              // From LaunchConfig
+    uint256 public hardCapETH;                      // From LaunchConfig
+    uint256 public raiseEndTime;                    // Deposit window closes
+    uint256 public lockDuration;                    // LP lock period
+    uint256 public maturityTime;                    // raiseEndTime + lockDuration
+    
+    // State Flags
+    bool public launched;                           // Launch executed
+    bool public failed;                             // Target not reached
+    bool public paused;                             // Emergency pause
+    
+    // Refund Tracking
+    mapping(address => bool) public refundClaimed;  // LP refund status
+    
+    // Vaults
+    address public creatorVestingVault;
+    address public treasuryVault;
+    address public strategicReserveVault;
+    address public rewardsDistributor;
+}
+```
+
+---
+
+### VestingSchedule
+
+**Purpose:** Track creator's token vesting with cliff and linear release
+
+```solidity
+struct VestingSchedule {
+    uint256 totalAmount;           // Total tokens to vest
+    uint256 releasedAmount;        // Already released to creator
+    uint256 startTime;             // Vesting start (launch time)
+    uint256 cliffDuration;         // Time before any release (e.g., 1 year)
+    uint256 vestingDuration;       // Time for full vesting after cliff
+}
+```
+
+**Calculation:**
+```solidity
+function releasableAmount(VestingSchedule storage vs) 
+    public view returns (uint256) 
+{
+    // During cliff: nothing
+    if (block.timestamp < vs.startTime + vs.cliffDuration) {
+        return 0;
+    }
+    
+    // After full vesting: everything
+    if (block.timestamp >= vs.startTime + vs.cliffDuration + vs.vestingDuration) {
+        return vs.totalAmount - vs.releasedAmount;
+    }
+    
+    // During vesting: proportional
+    uint256 elapsed = block.timestamp - (vs.startTime + vs.cliffDuration);
+    uint256 vested = (vs.totalAmount * elapsed) / vs.vestingDuration;
+    return vested - vs.releasedAmount;
+}
+```
+
+**Storage:**
+```solidity
+mapping(address => VestingSchedule) public vesting;  // Creator → schedule
+```
+
+---
+
+### Proposal
+
+**Purpose:** Governance proposal with voting tracking
+
+```solidity
+struct Proposal {
+    uint256 proposalId;            // Unique proposal ID
+    uint8 proposalType;            // 0=Treasury, 1=Strategic, 2=LockReduction, 3=Emergency
+    address proposer;              // LP who created proposal
+    address target;                // Contract being modified (vault, etc)
+    bytes data;                    // Encoded function call
+    string description;            // Human-readable description
+    
+    // Voting
+    uint256 votesFor;              // Sum of shares voting FOR
+    uint256 votesAgainst;          // Sum of shares voting AGAINST
+    mapping(address => bool) hasVoted; // LP vote tracking
+    
+    // Timing
+    uint256 createdAt;             // Block timestamp
+    uint256 votingEndTime;         // When voting closes
+    uint256 timelockExpires;       // When execution allowed
+    
+    // Status
+    bool executed;                 // True if executed
+    bool vetoed;                   // True if creator rejected (for lock reductions)
+}
+```
+
+**Storage:**
+```solidity
+mapping(uint256 => Proposal) public proposals;
+uint256 public proposalCounter;
+
+mapping(uint256 => mapping(address => bool)) public hasVoted;
+```
+
+---
+
+### CreatorProfile
+
+**Purpose:** Track creator reputation and metadata
+
+```solidity
+struct CreatorProfile {
+    // Identity
+    string name;                   // Human name
+    string website;                // Project website URL
+    string twitter;                // Twitter handle
+    string github;                 // GitHub username
+    
+    // Verification
+    bool kycVerified;              // KYC completion status
+    bool twitterVerified;          // Twitter blue check
+    bool githubVerified;           // GitHub account verified
+    
+    // Reputation
+    uint256 successfulLaunches;    // Number of successful launches
+    uint256 failedLaunches;        // Number of failed launches
+    uint256 reputationScore;       // 0-100 derived from success rate
+    
+    // Metadata
+    uint256 firstLaunchTime;       // Timestamp of first launch
+    uint256 lastUpdateTime;        // Last profile update
+}
+```
+
+**Storage:**
+```solidity
+mapping(address => CreatorProfile) public creators;
+```
+
+**Reputation Calculation:**
+```solidity
+reputationScore = (successfulLaunches * 100) / (successfulLaunches + failedLaunches)
+```
+
+---
+
+### PopularityMetrics
+
+**Purpose:** Track metrics for popularity scoring
+
+```solidity
+struct PopularityMetrics {
+    uint256 totalDeposited;        // Total ETH deposited
+    uint256 uniqueDepositers;      // Count of distinct addresses
+    uint256 depositVelocity;       // ETH per day
+    uint256 timeTo50Percent;       // Days to reach 50% of target
+    
+    // Score Components
+    uint256 velocityScore;         // 0-100
+    uint256 uniquenessScore;       // 0-100
+    uint256 socialScore;           // 0-100
+    uint256 reputationScore;       // 0-100
+    uint256 speedScore;            // 0-100
+    
+    // Final Score
+    uint256 compositeScore;        // 0-100 weighted sum
+    uint256 lastUpdated;           // Timestamp
+}
+```
+
+**Storage:**
+```solidity
+mapping(address => PopularityMetrics) public metrics;  // Bootstrapper → metrics
+```
+
+**Score Calculation:**
+```solidity
+compositeScore = 
+    (velocityScore * 30) / 100 +
+    (uniquenessScore * 25) / 100 +
+    (socialScore * 20) / 100 +
+    (reputationScore * 15) / 100 +
+    (speedScore * 10) / 100;
+```
+
+---
+
+## Storage Layout & Optimization
+
+### Bootstrapper Slot Packing
+
+```solidity
+// Slot 0: Creator Address
+address public creator;              // 20 bytes
+
+// Slot 1: Token Addresses
+address public revvToken;            // 20 bytes
+// 12 bytes unused
+
+// Slot 2: Protocol Addresses
+address public weth;                 // 20 bytes
+// 12 bytes unused
+
+// Slot 3: Uniswap Contracts
+address public uniswapRouter;        // 20 bytes
+address public uniswapPair;          // 20 bytes packed together? No, separate slot
+// 12 bytes unused
+
+// Slot 4: Counters (packed)
+uint256 public totalDepositedETH;    // 32 bytes
+uint256 public totalShares;          // 32 bytes (Slot 5)
+
+// Slot 6-8: Time Parameters
+uint256 public raiseEndTime;         // 32 bytes
+uint256 public lockDuration;         // 32 bytes
+uint256 public maturityTime;         // 32 bytes
+
+// Slot 9: Uniswap LP Tokens
+uint256 public uniLPTokenAmount;     // 32 bytes
+
+// Slot 10: Targets (packed)
+uint256 public targetLiquidityETH;   // 32 bytes
+uint256 public hardCapETH;           // 32 bytes
+
+// Slot 11: Booleans (packed)
+bool public launched;                // 1 byte
+bool public failed;                  // 1 byte
+bool public paused;                  // 1 byte
+// 29 bytes unused
+
+// Slot 12+: Mappings
+mapping(address => uint256) public shares;      // Start Slot 12
+mapping(address => bool) public refundClaimed;  // Start Slot 13
+// ... more mappings
+```
+
+### Gas-Efficient Access
+
+```solidity
+// BAD: Multiple SLOAD operations
+if (totalShares > 0 && totalDepositedETH > 0) {
+    // totalShares → SLOAD #1
+    // totalDepositedETH → SLOAD #2
+}
+
+// GOOD: Cache in memory
+uint256 _totalShares = totalShares;           // SLOAD #1
+uint256 _totalDeposited = totalDepositedETH;  // SLOAD #2
+
+if (_totalShares > 0 && _totalDeposited > 0) {
+    // MLOAD operations (cheap)
+}
+```
+
+---
+
+## Mappings & Lookup Patterns
+
+### Factory Registry
+
+```solidity
+mapping(uint256 => address) public bootstrappers;      // ID → contract
+mapping(address => uint256) public bootstrapperIds;    // contract → ID
+mapping(address => bool) public isDeployed;            // contract → is valid
+
+// Lookup: Find launch ID for bootstrapper
+function getLaunchId(address bootstrapper) public view returns (uint256) {
+    require(isDeployed[bootstrapper], "Not a valid bootstrapper");
+    return bootstrapperIds[bootstrapper];
+}
+```
+
+### Creator Launches
+
+```solidity
+mapping(address => uint256[]) public creatorLaunches;  // creator → launch IDs
+
+// Lookup: All launches by creator
+function getCreatorLaunches(address creator) 
+    public view returns (uint256[] memory) 
+{
+    return creatorLaunches[creator];
+}
+```
+
+### Share Lookups
+
+```solidity
+// Direct: shares[lp] → balance
+function getShareBalance(address lp) public view returns (uint256) {
+    return shares[lp];
+}
+
+// Aggregate: totalShares = sum of all shares
+function getTotalShares() public view returns (uint256) {
+    return totalShares;
+}
+
+// Percentage: LP's percentage of pool
+function getSharePercentage(address lp) public view returns (uint256) {
+    return (shares[lp] * 1e18) / totalShares;  // 18 decimals
+}
+```
+
+---
+
+## Next Steps
+
+- Review [Smart Contracts](/architecture/contracts) for implementation
+- Check [Deployment](/architecture/deployment) for network configs
+- Explore [Mechanics](/mechanics) for usage patterns

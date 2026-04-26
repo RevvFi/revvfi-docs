@@ -1,0 +1,196 @@
+@import "nextra-theme-docs/style.css";
+
+/* Core Theme Overrides */
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Colors based on requirements (dark defaults) */
+  --bg-color: #0a0a0a;
+  --fg-color: #e5e5e5;
+  --heading-color: #ffffff;
+  --primary: #7c3aed;
+  --primary-light: #a78bfa;
+  --border-color: #1f1f1f;
+  --muted-text: #737373;
+  --surface-1: #0f0f0f;
+  --surface-2: #161616;
+  --code-bg: #000000;
+  --inline-code-bg: rgba(255, 255, 255, 0.1);
+  --callout-bg: rgba(124, 58, 237, 0.05);
+  --callout-border: rgba(124, 58, 237, 0.2);
+
+  /* Nextra specific variables */
+  --nextra-primary-hue: 260deg;
+  --nextra-primary-saturation: 85%;
+  --nextra-primary-lightness: 58%; /* matches #7c3aed */
+}
+
+html {
+  color-scheme: dark !important;
+  scroll-behavior: smooth;
+}
+
+html.light {
+  color-scheme: light !important;
+  --bg-color: #f8fafc;
+  --fg-color: #0f172a;
+  --heading-color: #0b1220;
+  --primary: #6d28d9;
+  --primary-light: #7c3aed;
+  --border-color: #e2e8f0;
+  --muted-text: #475569;
+  --surface-1: #ffffff;
+  --surface-2: #f1f5f9;
+  --code-bg: #0f172a;
+  --inline-code-bg: rgba(15, 23, 42, 0.08);
+  --callout-bg: rgba(109, 40, 217, 0.08);
+  --callout-border: rgba(109, 40, 217, 0.35);
+}
+
+body {
+  background-color: var(--bg-color) !important;
+  color: var(--fg-color) !important;
+  font-family: var(--font-sans) !important;
+  line-height: 1.7;
+}
+
+/* Sidebar Styling */
+.nextra-sidebar-container {
+  background-color: var(--surface-1) !important;
+  border-right: 1px solid var(--border-color) !important;
+  border-radius: 12px;
+}
+
+.nextra-sidebar-container nav ul li a {
+  transition: all 0.2s ease-in-out;
+  color: var(--muted-text);
+  font-weight: 500;
+}
+
+.nextra-sidebar-container nav ul li a:hover {
+  color: var(--fg-color) !important;
+  background-color: var(--surface-2) !important;
+}
+
+.nextra-sidebar-container nav ul li.active a,
+.nextra-sidebar-container nav ul li a[aria-current="page"] {
+  color: var(--primary) !important;
+  background-color: rgba(124, 58, 237, 0.1) !important;
+}
+
+.nextra-sidebar-container .nextra-nav-container {
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* Header / Top Nav */
+.nextra-nav-container {
+  background-color: var(--surface-1) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 14px;
+  margin: 0.75rem 1rem 0;
+  padding: 0.25rem 0.75rem;
+}
+
+.nextra-nav-container input[type="search"],
+.nextra-search input {
+  background-color: var(--surface-2) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 10px !important;
+}
+
+/* Content Area */
+main {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+main h1, main h2, main h3, main h4 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: 2em;
+  margin-bottom: 1em;
+}
+
+main h1 {
+  font-size: 2.25rem;
+  color: var(--heading-color);
+}
+
+main h2 {
+  font-size: 1.75rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+main p {
+  margin-bottom: 1.25rem;
+}
+
+main a {
+  color: var(--primary-light);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.2s ease;
+}
+
+main a:hover {
+  text-decoration-color: var(--primary-light);
+}
+
+/* Callouts / Warnings */
+.nextra-callout {
+  background-color: var(--callout-bg) !important;
+  border: 1px solid var(--callout-border) !important;
+  border-left: 4px solid var(--primary) !important;
+  color: var(--fg-color) !important;
+}
+
+/* Code Blocks */
+pre, code {
+  font-family: var(--font-mono) !important;
+}
+
+main pre {
+  background-color: var(--code-bg) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 8px !important;
+  padding: 1.25rem !important;
+}
+
+code:not([class*="language-"]) {
+  background-color: var(--inline-code-bg) !important;
+  color: var(--primary-light) !important;
+  padding: 0.15rem 0.3rem !important;
+  border-radius: 4px !important;
+}
+
+/* TOC / Right rail */
+.nextra-toc {
+  background-color: var(--surface-1) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+}
+
+/* Logo styling */
+img.logo {
+  border-radius: 50%;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  main {
+    padding: 0 1rem;
+  }
+
+  main h1 {
+    font-size: 1.8rem;
+  }
+
+  main h2 {
+    font-size: 1.5rem;
+  }
+}

@@ -1,0 +1,420 @@
+# Events & Errors Reference
+
+Complete specifications for all RevvFi events and error messages.
+
+## Events
+
+### Factory Events
+
+#### LaunchCreated
+
+```solidity
+event LaunchCreated(
+    uint256 indexed launchId,
+    address indexed creator,
+    address indexed bootstrapper,
+    address tokenAddress,
+    string tokenName,
+    string tokenSymbol,
+    uint256 totalSupply,
+    uint256 targetLiquidityETH,
+    uint256 raiseEndTime,
+    uint256 lockDuration
+);
+```
+
+**When:** `RevvFiFactory.createLaunch()` completes successfully
+
+**Data:**
+- `launchId`: Unique ID for this launch
+- `creator`: Address who initiated the launch
+- `bootstrapper`: Address of RevvFiBootstrapper contract
+- `tokenAddress`: Address of newly deployed ERC20 token
+- `tokenName`: Token's human-readable name
+- `tokenSymbol`: Token's ticker symbol
+- `totalSupply`: Total tokens minted
+- `targetLiquidityETH`: Minimum ETH required to launch
+- `raiseEndTime`: Timestamp when deposits close
+- `lockDuration`: Seconds LPs must wait after launch
+
+### Bootstrapper Events
+
+#### Deposit
+
+```solidity
+event Deposit(
+    address indexed lp,
+    uint256 ethAmount,
+    uint256 sharesMinted
+);
+```
+
+**When:** `RevvFiBootstrapper.depositETH()` succeeds
+
+**Data:**
+- `lp`: Address of liquidity provider
+- `ethAmount`: ETH amount deposited
+- `sharesMinted`: Shares minted (1:1 with ETH)
+
+**Example:**
+```
+Deposit(0xAlice, 10000000000000000000, 10000000000000000000)
+// Alice deposited 10 ETH, received 10 shares
+```
+
+#### LaunchSuccess
+
+```solidity
+event LaunchSuccess(
+    uint256 totalDepositedETH,
+    uint256 tokenAmountAdded,
+    uint256 uniLPTokensReceived,
+    uint256 maturityTime,
+    address indexed caller
+);
+```
+
+**When:** `RevvFiBootstrapper.launch()` completes successfully
+
+**Data:**
+- `totalDepositedETH`: Total ETH added to Uniswap pair
+- `tokenAmountAdded`: Total tokens added to Uniswap pair
+- `uniLPTokensReceived`: Uniswap LP tokens minted
+- `maturityTime`: Timestamp when LPs can withdraw
+- `caller`: Address who called launch() (gets 0.01 ETH)
+
+**Example:**
+```
+LaunchSuccess(
+    totalDepositedETH: 100000000000000000000,      // 100 ETH
+    tokenAmountAdded: 250000000000000000000000,    // 250k tokens
+    uniLPTokensReceived: 5000000000000000000000,   // 5k LP tokens
+    maturityTime: 1740000000,                       // April 2025
+    caller: 0xBot
+)
+```
+
+#### Refund
+
+```solidity
+event Refund(
+    address indexed lp,
+    uint256 ethAmount
+);
+```
+
+**When:** LP successfully claims refund after failed launch
+
+**Data:**
+- `lp`: Address claiming refund
+- `ethAmount`: ETH amount returned
+
+**Example:**
+```
+Refund(0xAlice, 10000000000000000000)
+// Alice recovered 10 ETH
+```
+
+#### WithdrawAsAssets
+
+```solidity
+event WithdrawAsAssets(
+    address indexed lp,
+    uint256 ethAmount,
+    uint256 tokenAmount
+);
+```
+
+**When:** LP calls `withdrawAsAssets()` after lock expires
+
+**Data:**
+- `lp`: Address withdrawing
+- `ethAmount`: ETH received from Uniswap position
+- `tokenAmount`: Tokens received from Uniswap position
+
+**Example:**
+```
+WithdrawAsAssets(
+    lp: 0xBob,
+    ethAmount: 10000000000000000000,              // 10 ETH
+    tokenAmount: 25000000000000000000000          // 25k tokens
+)
+// Bob's 10 ETH has grown to 10 + received token value
+```
+
+#### WithdrawAsETH
+
+```solidity
+event WithdrawAsETH(
+    address indexed lp,
+    uint256 totalEthAmount
+);
+```
+
+**When:** LP calls `withdrawAsETH()` and tokens are swapped for ETH
+
+**Data:**
+- `lp`: Address withdrawing
+- `totalEthAmount`: Total ETH after token swap
+
+**Example:**
+```
+WithdrawAsETH(
+    lp: 0xCharlie,
+    totalEthAmount: 15000000000000000000  // 15 ETH after swap
+)
+```
+
+#### EmergencyPause
+
+```solidity
+event EmergencyPause(
+    address indexed guardian,
+    uint256 timestamp
+);
+```
+
+**When:** Guardian calls `emergencyPause()`
+
+**Data:**
+- `guardian`: Multisig address that paused
+- `timestamp`: Block timestamp of pause
+
+### Governance Events
+
+#### ProposalCreated
+
+```solidity
+event ProposalCreated(
+    uint256 indexed proposalId,
+    address indexed proposer,
+    uint8 proposalType,
+    address target,
+    string description,
+    uint256 createdAt
+);
+```
+
+**When:** Any LP creates a governance proposal
+
+**Data:**
+- `proposalId`: Unique proposal ID
+- `proposer`: LP address who created proposal
+- `proposalType`: `0` — Treasury, `1` — Strategic, `2` — LockReduction, `3` — Emergency
+- `target`: Contract being modified
+- `description`: Human-readable proposal description
+- `createdAt`: Block timestamp
+
+#### VoteCast
+
+```solidity
+event VoteCast(
+    address indexed voter,
+    uint256 indexed proposalId,
+    uint256 forAgainst,
+    uint256 votingPower
+);
+```
+
+**When:** LP calls `castVote()`
+
+**Data:**
+- `voter`: LP address voting
+- `proposalId`: Proposal being voted on
+- `forAgainst`: `1` — For, `0` — Against
+- `votingPower`: LP's share balance (voting weight)
+
+#### ProposalExecuted
+
+```solidity
+event ProposalExecuted(
+    uint256 indexed proposalId,
+    address target,
+    uint256 timestamp
+);
+```
+
+**When:** Approved proposal is executed
+
+**Data:**
+- `proposalId`: Proposal ID executed
+- `target`: Contract that was modified
+- `timestamp`: Execution timestamp
+
+### Vault Events
+
+#### TokensReleased (CreatorVestingVault)
+
+```solidity
+event TokensReleased(
+    address indexed beneficiary,
+    uint256 amount
+);
+```
+
+**When:** Creator calls `release()` on vesting vault
+
+#### TreasuryReleaseProposed (TreasuryVault)
+
+```solidity
+event ReleaseProposed(
+    uint256 indexed proposalId,
+    uint256 amount,
+    string description
+);
+```
+
+#### TreasuryReleaseExecuted (TreasuryVault)
+
+```solidity
+event ReleaseExecuted(
+    uint256 indexed proposalId,
+    address recipient,
+    uint256 amount
+);
+```
+
+#### RewardsDistributed (RewardsDistributor)
+
+```solidity
+event RewardsDistributed(
+    address indexed recipient,
+    uint256 amount,
+    uint256 timestamp
+);
+```
+
+### Oracle Events
+
+#### ScoreUpdated (PopularityOracle)
+
+```solidity
+event ScoreUpdated(
+    address indexed bootstrapper,
+    uint256 newScore,
+    uint256 timestamp
+);
+```
+
+**When:** Popularity score is calculated and changes
+
+**Data:**
+- `bootstrapper`: Launch bootstrapper address
+- `newScore`: New popularity score (0-100)
+- `timestamp`: Update timestamp
+
+---
+
+## Error Messages
+
+### Validation Errors
+
+| Error | Context | Cause | Fix |
+|-------|---------|-------|-----|
+| `"Launch fee required"` | createLaunch | msg.value < 0.1 ETH | Send 0.1 ETH |
+| `"Invalid lock duration"` | createLaunch | lockDuration < 30 days OR > 730 days | Set 30-730 day lock |
+| `"Invalid allocations"` | createLaunch | Sum of allocations ≠ totalSupply | Verify token allocation math |
+| `"Zero address"` | deployToken | Address parameter is 0x0 | Provide valid address |
+
+### Deposit Errors
+
+| Error | Context | Cause | Fix |
+|-------|---------|-------|-----|
+| `"Deposits paused"` | depositETH | Guardian paused the launch | Wait for unpause or cancel |
+| `"Already launched"` | depositETH | Launch already executed | Move to withdrawal phase |
+| `"Launch failed"` | depositETH | Launch failed to meet target | Claim refund |
+| `"Deposit window closed"` | depositETH | `block.timestamp > raiseEndTime` | Wait for new launch or refund |
+| `"Must deposit something"` | depositETH | `msg.value == 0` | Send ETH > 0 |
+| `"Hard cap exceeded"` | depositETH | `totalDeposited + msg.value > hardCapETH` | Deposit less |
+
+### Launch Errors
+
+| Error | Context | Cause | Fix |
+|-------|---------|-------|-----|
+| `"Already launched"` | launch | `launched == true` | Launch already occurred |
+| `"Launch failed"` | launch | `failed == true` | Target never reached |
+| `"Deposits still open"` | launch | `block.timestamp <= raiseEndTime` | Wait until deposit window closes |
+| `"Target not met"` | launch | `totalDepositedETH < targetLiquidityETH` | Insufficient deposits; cannot launch |
+| `"Uniswap add failed"` | launch | Uniswap slippage or other issue | Try again with better conditions |
+
+### Refund Errors
+
+| Error | Context | Cause | Fix |
+|-------|---------|-------|-----|
+| `"Not a failed launch"` | refundLP | `failed == false` | Launch succeeded; can't refund |
+| `"Already claimed"` | refundLP | `refundClaimed[msg.sender] == true` | Already refunded |
+| `"Transfer failed"` | refundLP | ETH transfer reverted | Contract may not accept ETH |
+
+### Withdrawal Errors
+
+| Error | Context | Cause | Fix |
+|-------|---------|-------|-----|
+| `"Not launched"` | withdrawAsAssets | `launched == false` | Launch hasn't executed yet |
+| `"Still locked"` | withdrawAsAssets | `block.timestamp < maturityTime` | Wait until lock period ends |
+| `"Withdrawals paused"` | withdrawAsAssets | `paused == true` | Guardian paused withdrawals |
+| `"Insufficient shares"` | withdrawAsAssets | `shares[msg.sender] < shareAmount` | Check your share balance |
+
+### Governance Errors
+
+| Error | Context | Cause | Fix |
+|-------|---------|-------|-----|
+| `"No voting power"` | propose | `shares[msg.sender] == 0` | Must have shares to propose |
+| `"Already voted"` | castVote | `hasVoted[proposalId][msg.sender] == true` | Can only vote once per proposal |
+| `"Threshold not met"` | executeProposal | `votesFor < threshold%` | Not enough approval votes |
+| `"Timelock active"` | executeProposal | `block.timestamp < timelockExpires` | Wait for timelock to expire |
+
+### Vesting Errors
+
+| Error | Context | Cause | Fix |
+|-------|---------|-------|-----|
+| `"Nothing to release"` | release (vesting) | releasableAmount() == 0 | Still in cliff or vesting period |
+| `"Already released"` | release (vesting) | amount > releasableAmount() | Can't release more than vested |
+
+---
+
+## Error Handling Best Practices
+
+### Try/Catch Pattern
+
+```solidity
+try bootstrapper.launch() {
+    // Success
+} catch Error(string memory reason) {
+    // Known error
+    revert(reason);
+} catch (bytes memory lowLevelData) {
+    // Unknown error
+    revert("Launch failed");
+}
+```
+
+### Safe Transfer Pattern
+
+```solidity
+(bool success, ) = address(lp).call{value: refundAmount}("");
+require(success, "ETH transfer failed");
+```
+
+### Slippage Protection
+
+```solidity
+uint256 minTokenOut = (expectedTokens * 99) / 100;  // 1% slippage
+uint256 minEthOut = (expectedETH * 99) / 100;
+
+uniswapRouter.addLiquidityETH{value: ethAmount}(
+    tokenAddress,
+    tokenAmount,
+    minTokenOut,
+    minEthOut,
+    address(this),
+    block.timestamp + 15 minutes
+);
+```
+
+---
+
+## Next Steps
+
+- Review [Gas Estimates](/reference/gas-estimates) for transaction costs
+- Check [Deployment Config](/reference/deployment) for addresses
+- Read [Glossary](/reference/glossary) for term definitions

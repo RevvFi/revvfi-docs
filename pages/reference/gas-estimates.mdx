@@ -1,0 +1,325 @@
+# Gas Estimates
+
+Estimated gas costs for RevvFi operations on Base, Arbitrum, and Ethereum mainnet.
+
+## Overview
+
+Gas costs vary significantly by network:
+
+| Network | Gas Price (typical) | ETH Price | Est. Cost for 100k gas |
+|---------|-------------------|-----------|----------------------|
+| Base | `0.1–1 Gwei` | $3,500 | `$0.35–3.50` |
+| Arbitrum | `0.1–0.5 Gwei` | $3,500 | `$0.35–1.75` |
+| Ethereum | `20–100 Gwei` | $3,500 | `$7.00–35.00` |
+
+---
+
+## Creator Operations
+
+### createLaunch
+
+**Base Gas:** `~500,000–600,000 gas`
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Factory validation | 5,000 | Fee check, registry update |
+| Token deployment | 150,000 | ERC20 constructor, minting |
+| Bootstrapper deployment | 100,000 | Contract creation + initialization |
+| Vaults deployment (4×) | 200,000 | CreatorVesting, Treasury, Strategic, Rewards |
+| Approvals & transfers | 40,000 | Transfer allocations to vaults |
+| Registry updates | 5,000 | Metadata storage |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Total Cost | Notes |
+|---------|-----------|-----------|-------|
+| Base | 1 Gwei | $2.00 | Recommended primary network |
+| Arbitrum | 0.5 Gwei | $1.00 | Low cost option |
+| Ethereum | 50 Gwei | $25.00 | High-security option |
+
+**Optimization Tips:**
+- Batch-create launches if deploying multiple tokens
+- Deploy during low-gas hours on Ethereum
+- Consider Base or Arbitrum for cost efficiency
+
+---
+
+## LP Operations
+
+### depositETH
+
+**Base Gas:** `~80,000 gas` (single deposit)
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Precondition checks | 5,000 | State validation, time checks |
+| Share minting | 20,000 | Storage write |
+| Event emission | 10,000 | Log data |
+| Remaining (misc) | 45,000 | EVM operations |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Cost per 10 ETH | Cost per 100 ETH | Cost per 1,000 ETH |
+|---------|-----------|-----------------|------------------|-------------------|
+| Base | 1 Gwei | $0.80 | $0.80 | $0.80 |
+| Arbitrum | 0.5 Gwei | $0.40 | $0.40 | $0.40 |
+| Ethereum | 50 Gwei | $4.00 | $4.00 | $4.00 |
+
+**Cost per ETH Deposited:**
+- Small deposits (1-10 ETH): `0.08–0.4%` overhead
+- Large deposits (100+ ETH): `0.004–0.04%` overhead
+
+**Multiple Deposits:**
+Each additional deposit by same LP costs ~80k gas (storage already warm)
+
+---
+
+### launch (Permissionless)
+
+**Base Gas:** `~350,000–450,000 gas`
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Launch validation | 10,000 | Check target, time, state |
+| Uniswap approval | 20,000 | Token + WETH approvals |
+| Uniswap addLiquidity | 250,000 | Create pair, mint LP tokens |
+| Vault transfers (4×) | 40,000 | Transfer allocations |
+| Registry updates | 10,000 | Launch marked complete |
+| Incentive payment | 5,000 | 0.01 ETH to caller |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Cost |
+|---------|-----------|------|
+| Base | 1 Gwei | $1.40-1.80 |
+| Arbitrum | 0.5 Gwei | $0.70-0.90 |
+| Ethereum | 50 Gwei | $17.50-22.50 |
+
+**Caller Incentive Offset:**
+Caller receives 0.01 ETH (~$35 at current prices)
+- Net cost on Base: Profitable
+- Net cost on Arbitrum: Profitable
+- Net cost on Ethereum: Minor cost even with incentive
+
+---
+
+### refundLP
+
+**Base Gas:** ~60,000-80,000 gas (first LP)
+
+**First LP call:**
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Failure check | 10,000 | Verify target not met |
+| Set failed flag | 5,000 | Storage write |
+| Share burn | 10,000 | State update |
+| ETH transfer | 20,000 | External call + gas stipend |
+| Remaining | 10,000 | Events, misc |
+
+**Subsequent LP calls:** Same gas, but ~5k cheaper (storage already set)
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | First Call | Later Calls |
+|---------|-----------|-----------|-----------|
+| Base | 1 Gwei | $0.48-0.64 | $0.42-0.58 |
+| Arbitrum | 0.5 Gwei | $0.24-0.32 | $0.21-0.29 |
+| Ethereum | 50 Gwei | $3.00-4.00 | $2.50-3.50 |
+
+---
+
+### withdrawAsAssets
+
+**Base Gas:** ~200,000-250,000 gas
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Precondition checks | 10,000 | Time, state, shares |
+| Share ratio calculation | 5,000 | Arithmetic |
+| Uniswap removeLiquidity | 150,000 | Remove from pair |
+| Asset distribution | 20,000 | ETH + token transfers |
+| Share burning | 10,000 | Storage update |
+| Remaining | 10,000 | Events, misc |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Cost |
+|---------|-----------|------|
+| Base | 1 Gwei | $1.40-1.80 |
+| Arbitrum | 0.5 Gwei | $0.70-0.90 |
+| Ethereum | 50 Gwei | $10.00-12.50 |
+
+---
+
+### withdrawAsETH
+
+**Base Gas:** ~250,000-300,000 gas
+
+**Additional vs withdrawAsAssets:**
+- Uniswap token→ETH swap: ~50,000 additional gas
+- Otherwise identical flow
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Precondition checks | 10,000 | Time, state, shares |
+| Uniswap removeLiquidity | 150,000 | Remove from pair |
+| Uniswap token swap | 50,000 | Route through Uniswap |
+| ETH distribution | 20,000 | Single transfer |
+| Share burning | 10,000 | Storage update |
+| Remaining | 10,000 | Events, misc |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Cost |
+|---------|-----------|------|
+| Base | 1 Gwei | $1.75-2.25 |
+| Arbitrum | 0.5 Gwei | $0.87-1.12 |
+| Ethereum | 50 Gwei | $12.50-15.00 |
+
+---
+
+## Governance Operations
+
+### propose
+
+**Base Gas:** ~150,000 gas
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Voting power check | 5,000 | Share balance lookup |
+| Proposal creation | 50,000 | Storage write |
+| Timelock calculation | 5,000 | Math |
+| Data storage | 80,000 | Encode + store proposal data |
+| Event emission | 10,000 | Log |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Cost |
+|---------|-----------|------|
+| Base | 1 Gwei | $0.60 |
+| Arbitrum | 0.5 Gwei | $0.30 |
+| Ethereum | 50 Gwei | $7.50 |
+
+---
+
+### castVote
+
+**Base Gas:** ~50,000 gas per vote
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Voter validation | 5,000 | Share check, duplicate vote prevention |
+| Vote recording | 20,000 | Storage update |
+| Voting power aggregation | 10,000 | Update proposal totals |
+| Event emission | 10,000 | Log vote |
+| Remaining | 5,000 | Misc |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Cost |
+|---------|-----------|------|
+| Base | 1 Gwei | $0.20 |
+| Arbitrum | 0.5 Gwei | $0.10 |
+| Ethereum | 50 Gwei | $2.50 |
+
+**Note:** Multiple votes per proposal each cost ~50k gas independently
+
+---
+
+### executeProposal
+
+**Base Gas:** ~120,000-180,000 gas (varies by proposal type)
+
+| Component | Gas | Notes |
+|-----------|-----|-------|
+| Approval validation | 10,000 | Threshold check |
+| Timelock verification | 5,000 | Check delays |
+| Proposal execution | 80,000-140,000 | Varies by target |
+| State update | 5,000 | Mark executed |
+| Event emission | 5,000 | Log |
+
+**By Proposal Type:**
+
+| Type | Gas | Notes |
+|------|-----|-------|
+| Treasury Release | 140,000 | Transfer tokens to recipient |
+| Strategic Release | 140,000 | Similar to treasury |
+| Lock Reduction | 80,000 | Update single variable |
+| Emergency Pause | 60,000 | Simple flag update |
+
+**Costs at Different Networks:**
+
+| Network | Gas Price | Cost Range |
+|---------|-----------|-----------|
+| Base | 1 Gwei | $0.48-0.72 |
+| Arbitrum | 0.5 Gwei | $0.24-0.36 |
+| Ethereum | 50 Gwei | $6.00-9.00 |
+
+---
+
+## Total Cost Examples
+
+### Scenario: 10 LPs in 100 ETH Launch (Base Network, 1 Gwei gas)
+
+| Operation | Participants | Gas | Cost | Notes |
+|-----------|--------------|-----|------|-------|
+| Create launch | Creator | 550k | $1.83 | Creator pays |
+| Deposit ETH | 10 LPs × 10 ETH | 80k each | $8.00 | LPs pay |
+| Launch | Anyone | 400k | $1.33 | Caller recoups via incentive |
+| Withdraw | 10 LPs | 225k each | $22.50 | LPs pay (~0.9% of withdraw value) |
+| 1 Governance vote | 5 LPs | 50k each | $2.50 | LPs pay |
+| **Total** | — | — | **$36.16** | Per $3.5k capital (~1% overhead) |
+
+### Scenario: 100 LPs in 1,000 ETH Launch (Arbitrum, 0.5 Gwei gas)
+
+| Operation | Participants | Gas | Cost | Notes |
+|-----------|--------------|-----|------|-------|
+| Create launch | Creator | 550k | $0.28 | Creator pays |
+| Deposit ETH | 100 LPs × 10 ETH | 80k each | $4.00 | LPs pay |
+| Launch | Anyone | 400k | $0.20 | Caller breaks even |
+| Withdraw | 100 LPs | 225k each | $11.25 | LPs pay (~0.045% of withdraw value) |
+| **Total** | — | — | **$15.73** | Per $35k capital (~0.045% overhead) |
+
+---
+
+## Gas Optimization Tips
+
+### For Creators
+
+1. **Deploy on Base or Arbitrum first** (~50-80% cheaper than Ethereum)
+2. **Deploy during lower network congestion** (reduces base gas price)
+3. **Consider batching launches** (if deploying multiple tokens)
+
+### For LPs
+
+1. **Use ETH with lower gas price** (trade off speed vs cost)
+2. **Batch governance votes** (combine with other activities)
+3. **Withdraw in batches** (if possible with multiple launches)
+
+### For Platforms
+
+1. **Bundle deposits** (if aggregating LP funds)
+2. **Execute launches during quiet periods**
+3. **Batch governance executions**
+
+---
+
+## Gas Limits
+
+### Per-Transaction Limits
+
+| Network | Block Gas Limit | Typical Tx | RevvFi Overhead |
+|---------|-----------------|-----------|-----------------|
+| Base | 30M | 150k | ~0.5% |
+| Arbitrum | 100M | 1M+ | `<0.1%` |
+| Ethereum | 30M | 200k | ~2% |
+
+All RevvFi operations fit well within limits.
+
+---
+
+## Next Steps
+
+- Review [Events & Errors](/reference/events) for detailed event specs
+- Check [Deployment Config](/reference/deployment) for network addresses
+- Read [Glossary](/reference/glossary) for terminology

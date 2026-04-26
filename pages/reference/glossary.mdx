@@ -1,0 +1,343 @@
+# Glossary
+
+Technical terminology and definitions for RevvFi.
+
+## A
+
+### Approval Threshold
+The percentage of voting shares required to approve a governance proposal. Different proposals have different thresholds:
+- Treasury: 60%
+- Strategic Reserve: 66%
+- Emergency: 80%
+
+### AMM (Automated Market Maker)
+Decentralized exchange mechanism using liquidity pools. RevvFi uses Uniswap V2's AMM for token trading.
+
+---
+
+## B
+
+### Bootstrapper
+See **RevvFiBootstrapper**
+
+### Bounty
+See **Launch Incentive**
+
+---
+
+## C
+
+### Cliff Duration
+The period during which no tokens are released to the creator. After cliff expires, linear vesting begins. Example: 1-year cliff means creator receives nothing for 12 months.
+
+### Creator Vesting
+The schedule by which creator tokens unlock after launch. Includes cliff (locked period) and vesting (linear release).
+
+### CreatorVestingVault
+Smart contract holding creator's allocated tokens with cliff + linear release schedule protection.
+
+---
+
+## D
+
+### Deposit Window
+The time period during which LPs can deposit ETH into a launch. Closes at `raiseEndTime`.
+
+### DEX
+Decentralized Exchange. RevvFi uses Uniswap V2 as its primary DEX.
+
+---
+
+## E
+
+### ERC20
+Ethereum standard for fungible tokens. RevvFi tokens follow ERC20 standard.
+
+---
+
+## F
+
+### Failing Launch
+A launch where total deposited ETH never reaches the `targetLiquidityETH` before `raiseEndTime`. Failed launches allow refunds.
+
+### Fungible
+Interchangeable. ERC20 tokens are fungible (each token is identical).
+
+---
+
+## G
+
+### Governance
+System for collective decision-making by LPs. Uses share-based voting (no separate token).
+
+### Guardian Multisig
+Multi-signature wallet that can emergency-pause launches but cannot access funds.
+
+---
+
+## H
+
+### Hard Cap
+Maximum total ETH accepted in a launch. If set to 0, no maximum (soft cap only).
+
+### Headroom
+The remaining capital available before hard cap is reached.
+
+---
+
+## L
+
+### Launch
+The execution of `bootstrapper.launch()` when:
+1. `totalDepositedETH >= targetLiquidityETH`
+2. `block.timestamp > raiseEndTime`
+3. Called by anyone (permissionless, incentivized with 0.01 ETH)
+
+### Launch Fee
+0.1 ETH paid by creator to deploy a new launch. Non-refundable even if launch fails.
+
+### Launch Incentive
+0.01 ETH reward to the address that calls `launch()`. Covers caller's gas costs.
+
+### Lock Duration
+Period in seconds that LPs must wait after launch before withdrawing. Set by creator, ranges 30-730 days.
+
+### Liquidity Pool
+Pool of tokens + ETH on Uniswap V2 used for trading. RevvFi creates dedicated pools per token.
+
+### LP (Liquidity Provider)
+User who deposits ETH into a RevvFi launch. Receives shares and governance voting rights.
+
+### LP Token (Uniswap)
+ERC20 token representing a share of a Uniswap V2 liquidity pool. Held by RevvFiBootstrapper, not distributed to LPs.
+
+---
+
+## M
+
+### Maturity Time
+Timestamp when LPs can begin withdrawals. Formula: `maturityTime = raiseEndTime + lockDuration`
+
+### Multisig
+Multi-signature wallet requiring multiple authorized signers to execute transactions.
+
+---
+
+## N
+
+### Non-Transferable
+Property of RevvFi shares: shares cannot be transferred between addresses. Can only be minted on deposit, burned on withdrawal.
+
+---## O
+
+### Oracle
+On-chain system that provides external data. PopularityOracle calculates popularity scores for launches.
+
+---
+
+## P
+
+### Pair
+Uniswap V2 trading pair (e.g., REVV/WETH) that enables token trading.
+
+### Per-Token Contract Isolation
+RevvFi architectural principle: each launch gets independent contracts (bootstrapper, vaults) to prevent cross-launch interference.
+
+### Popularity Score
+0-100 metric calculated by PopularityOracle based on:
+- Deposit velocity (30%)
+- Unique depositors (25%)
+- Social verification (20%)
+- Creator reputation (15%)
+- Time to target (10%)
+
+### Proposal
+Governance action proposed by an LP. Types: Treasury Release, Strategic Release, Lock Reduction, Emergency.
+
+### Proposer
+LP who creates a governance proposal.
+
+---
+
+## R
+
+### Raise End Time
+Timestamp when deposit window closes. Set to: `block.timestamp + raiseWindowDuration`
+
+### Raise Window Duration
+Duration in seconds that deposit window stays open.
+
+### Refund
+Return of deposited ETH to LP if launch fails. Proportional to LP's share balance.
+
+### RevvFiBootstrapper
+Primary smart contract per launch. Orchestrates deposits, launch, refunds, and withdrawals.
+
+### RevvFiFactory
+Main factory contract. Deploys new launch instances and maintains registry.
+
+### RevvFiGovernance
+Governance contract managing LP voting on proposals.
+
+### Rug Pull
+Malicious action where creator drains funds illegally. RevvFi prevents via:
+- Non-transferable shares
+- Treasury controls
+- Vesting cliff/locks
+- Creator isolation
+
+---
+
+## S
+
+### Share
+Internal accounting unit representing LP's stake. Minted 1:1 with ETH deposited. Non-transferable.
+
+### Share Ledger
+Mapping `shares[address => uint256]` tracking each LP's share balance. Serves as governance instrument.
+
+### Slippage
+Price movement during token swap. RevvFi uses 1% slippage tolerance on Uniswap interactions.
+
+### Soft Cap
+Minimum ETH required to launch (`targetLiquidityETH`). If not met, launch fails and LPs can refund.
+
+### Staking
+Locking tokens to earn rewards. RevvFi uses shares instead (no separate staking mechanism in v1).
+
+### Strategic Reserve Vault
+Vault holding strategically reserved tokens with strict governance controls:
+- 66% approval threshold
+- 14-day timelock
+- Max 25% per quarter
+
+---
+
+## T
+
+### Target Liquidity ETH
+Minimum ETH required to execute launch. If target not reached by `raiseEndTime`, launch fails.
+
+### Template
+Token template used to deploy new ERC20s. RevvFi templates include Community, Utility, Meme types.
+
+### Threshold
+See **Approval Threshold**
+
+### Timelock
+Delay period between proposal approval and execution. Allows LPs to exit if disagreeing:
+- Treasury: 7 days
+- Strategic: 14 days
+- Emergency: 48 hours
+
+### Total Shares
+Sum of all shares minted across all LPs: `totalShares = sum(shares[lp])`
+
+### Total Supply
+Total tokens minted per launch. Sum of:
+- Liquidity Allocation
+- Creator Vesting
+- Treasury
+- Strategic Reserve
+- Rewards
+
+### Transfer Pause
+Function preventing token transfers during emergency. RevvFi tokens don't include this (unnecessary).
+
+### Treasury Vault
+LP-controlled vault holding treasury tokens. Uses 60% approval + 7-day timelock.
+
+---
+
+## U
+
+### Uniswap V2
+DEX version 2 used for RevvFi liquidity. Provides AMM mechanics, routing, and LP token generation.
+
+### Unique Depositors
+Count of distinct addresses that deposited in a launch. Used in popularity score calculation.
+
+---
+
+## V
+
+### Vault
+Smart contract holding tokens with restricted access. RevvFi has 4 vault types per launch:
+- CreatorVestingVault
+- TreasuryVault
+- StrategicReserveVault
+- RewardsDistributor
+
+### Vesting
+Schedule of token release over time. RevvFi uses:
+- Cliff: no release for period (e.g., 1 year)
+- Linear: gradual release afterward (e.g., 2 years)
+
+### Voting Power
+Share balance of an LP, used to weight their votes in governance. Direct 1:1 relationship.
+
+---
+
+## W
+
+### WETH
+Wrapped Ethereum. ERC20 token representing 1 ETH. Used for Uniswap V2 pairs.
+
+### Withdrawal
+LP action to close position and receive assets after `maturityTime`. Options:
+- **withdrawAsAssets:** Receive ETH + tokens
+- **withdrawAsETH:** Receive only ETH (tokens auto-swapped)
+
+---
+
+## X
+
+*No RevvFi-specific X terms.*
+
+---
+
+## Y
+
+*No RevvFi-specific Y terms.*
+
+---
+
+## Z
+
+*No RevvFi-specific Z terms.*
+
+---
+
+## Related Concepts
+
+### Blockchain Terms
+
+- **Block:** Unit of bundled transactions
+- **Smart Contract:** Self-executing code on blockchain
+- **Gas:** Fee unit for computation
+- **Slippage:** Price impact of large trades
+- **Liquidity:** Ability to buy/sell without large price impact
+
+### DeFi Terms
+
+- **Liquidity Provider:** User who provides capital to DEX
+- **Trading Pair:** Two tokens that can be exchanged
+- **Yield Farming:** Depositing liquidity to earn rewards
+- **Governance Token:** Token granting voting rights
+- **Timelock:** Delay before sensitive actions execute
+
+### Ethereum Terms
+
+- **ERC20:** Token standard for fungible tokens
+- **ERC721:** Token standard for non-fungible tokens
+- **Address:** 42-character identifier for accounts/contracts
+- **Multisig:** Wallet requiring multiple signatures
+- **Proxy:** Upgradeable smart contract pattern
+
+---
+
+## Next Steps
+
+- Review [Mechanics](/mechanics) to understand RevvFi workflows
+- Check [Reference](/reference) for specific function signatures
+- Explore [Architecture](/architecture) for contract designs

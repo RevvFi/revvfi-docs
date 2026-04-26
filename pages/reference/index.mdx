@@ -1,0 +1,175 @@
+# Reference Overview
+
+Complete technical reference for RevvFi deployments.
+
+## Quick Reference
+
+### Core Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `LAUNCH_FEE` | 0.1 ETH | Creator fee to prevent spam |
+| `MIN_LOCK_DURATION` | 30 days | Minimum LP lock period |
+| `MAX_LOCK_DURATION` | 730 days | Maximum LP lock period |
+| `LAUNCH_INCENTIVE` | 0.01 ETH | Reward for permissionless launch caller |
+| `SLIPPAGE_TOLERANCE` | 1% | Uniswap liquidity add/remove slippage |
+
+### Governance Thresholds
+
+| Fund Type | Approval % | Timelock | Max Release/Quarter |
+|-----------|-----------|----------|---------------------|
+| Treasury | 60% | 7 days | Unlimited |
+| Strategic Reserve | 66% | 14 days | 25% per quarter |
+| Emergency | 80% | 48 hours | N/A |
+| Lock Reduction | 75% + creator | 14 days | N/A |
+
+### Networks
+
+| Network | Priority | Status | Uniswap Router |
+|---------|----------|--------|----------------|
+| Base | Primary | Live | 0x... |
+| Arbitrum | Primary | Live | 0x... |
+| Ethereum | Secondary | Optional | 0x... |
+
+---
+
+## Function Quick Reference
+
+### RevvFiFactory
+
+- `createLaunch(LaunchConfig)` — Deploy new launch (requires 0.1 ETH)
+- `getLaunch(uint256 launchId)` — Retrieve launch info
+- `pauseLaunch(address)` — Emergency pause (guardian only)
+
+### RevvFiBootstrapper
+
+- `depositETH()` — LP deposits ETH, receives shares
+- `launch()` — Permissionless execution when target reached
+- `refundLP()` — Claim refund if launch fails
+- `withdrawAsAssets(uint256 shareAmount)` — Withdraw ETH + tokens
+- `withdrawAsETH(uint256 shareAmount)` — Withdraw as ETH only
+- `emergencyPause()` — Guardian pauses deposits
+
+### RevvFiGovernance
+
+- `propose(ProposalType, bytes, string)` — Create governance proposal
+- `castVote(uint256 proposalId, uint256 forAgainst)` — Vote on proposal
+- `executeProposal(uint256 proposalId)` — Execute approved proposal
+- `getVotingPower(address)` — Check LP's voting power
+
+### Vault Contracts
+
+**TreasuryVault / StrategicReserveVault:**
+- `proposeRelease(uint256 amount, string description)` — Propose token release
+- `executeRelease(uint256 proposalId)` — Execute release after vote
+
+**CreatorVestingVault:**
+- `release()` — Creator claims vested tokens
+- `releasableAmount()` — View releasable amount
+
+**RewardsDistributor:**
+- `distributeRewards(address, uint256)` — Governance distributes rewards
+- `getSchedule()` — View distribution schedule
+
+---
+
+## Events
+
+### Core Events
+
+**Launch Creation:**
+```
+LaunchCreated(
+    uint256 indexed launchId,
+    address indexed creator,
+    address indexed bootstrapper,
+    address tokenAddress
+)
+```
+
+**Deposits:**
+```
+Deposit(
+    address indexed lp,
+    uint256 ethAmount,
+    uint256 sharesMinted
+)
+```
+
+**Launch Success:**
+```
+LaunchSuccess(
+    uint256 totalDepositedETH,
+    uint256 tokenAmountAdded,
+    uint256 uniLPTokensReceived,
+    uint256 maturityTime,
+    address indexed caller
+)
+```
+
+**Refunds:**
+```
+Refund(
+    address indexed lp,
+    uint256 ethAmount
+)
+```
+
+**Withdrawals:**
+```
+WithdrawAsAssets(
+    address indexed lp,
+    uint256 ethAmount,
+    uint256 tokenAmount
+)
+
+WithdrawAsETH(
+    address indexed lp,
+    uint256 totalEthAmount
+)
+```
+
+**Governance:**
+```
+ProposalCreated(
+    uint256 indexed proposalId,
+    address indexed proposer,
+    string description
+)
+
+VoteCast(
+    address indexed voter,
+    uint256 indexed proposalId,
+    uint256 forAgainst,
+    uint256 votingPower
+)
+
+ProposalExecuted(
+    uint256 indexed proposalId
+)
+```
+
+---
+
+## Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `"Deposits paused"` | Guardian paused launch | Wait for guardian to unpause |
+| `"Already launched"` | Launch already executed | Proceed to withdrawal phase |
+| `"Deposit window closed"` | Past raiseEndTime | Try to launch or get refund |
+| `"Hard cap exceeded"` | Deposit exceeds hard cap | Deposit less or wait for next launch |
+| `"Target not met"` | Insufficient deposits | Claim refund after raiseEndTime |
+| `"Still locked"` | Before maturityTime | Wait until lock period ends |
+| `"Insufficient shares"` | Trying to withdraw too much | Check share balance |
+| `"Threshold not met"` | Proposal votes insufficient | Cannot execute proposal |
+| `"Timelock active"` | Execution timelock not elapsed | Wait for timelock to expire |
+
+---
+
+## Next Steps
+
+- Review [Events & Errors](/reference/events) for detailed event specs
+- Check [Gas Estimates](/reference/gas-estimates) for costs
+- View [Deployment Config](/reference/deployment) for network addresses
+- Read [Glossary](/reference/glossary) for terminology

@@ -1,0 +1,570 @@
+# System Flows
+
+Detailed walkthroughs of RevvFi's core transaction flows.
+
+## Flow 1: Launch Deployment
+
+**Actor:** Creator
+
+**Prerequisite:** Creator has prepared launch parameters and has 0.1 ETH
+
+### Steps
+
+```solidity
+RevvFiFactory.createLaunch({
+    tokenName: "MyToken",
+    tokenSymbol: "MYTKN",
+    totalSupply: 1_000_000e18,
+    liquidityAllocation: 250_000e18,
+    creatorVestingAmount: 150_000e18,
+    treasuryAmount: 250_000e18,
+    strategicReserveAmount: 200_000e18,
+    rewardsAmount: 150_000e18,
+    raiseWindowDuration: 14 days,
+    targetLiquidityETH: 100 ether,
+    hardCapETH: 1000 ether,
+    lockDuration: 365 days,
+    creatorCliffDuration: 365 days,
+    creatorVestingDuration: 730 days,
+    templateId: 0,
+    tokenURI: "ipfs://Qm..."
+}) // msg.value = 0.1 ETH
+```
+
+### Backend Actions
+
+1. **Verify Fee**
+   - Check `msg.value >= 0.1 ETH`
+   - Log fee payment to platform treasury
+
+2. **Deploy ERC20 Token**
+   - `TokenTemplateFactory.deployToken()`
+   - Mint entire `totalSupply` to bootstrapper in constructor
+   - No mint function after constructor
+
+3. **Calculate Maturity Bounds**
+   ```
+   raiseEndTime = block.timestamp + raiseWindowDuration
+   // maturityTime set later in launch()
+   ```
+
+4. **Deploy Bootstrapper**
+   - RevvFiBootstrapper instance created
+   - Set state: `launched = false`, `failed = false`
+
+5. **Deploy Vaults**
+   - CreatorVestingVault
+   - TreasuryVault
+   - StrategicReserveVault
+   - RewardsDistributor
+
+6. **Transfer Initial Token Allocations**
+   ```
+   token.transfer(bootstrapper, liquidityAllocation)
+   token.transfer(creatorVestingVault, creatorVestingAmount)
+   token.transfer(treasuryVault, treasuryAmount)
+   token.transfer(strategicReserveVault, strategicReserveAmount)
+   token.transfer(rewardsDistributor, rewardsAmount)
+   ```
+
+7. **Register & Emit**
+   ```
+   launchId = ++bootstrapperCount
+   bootstrappers[launchId] = bootstrapper
+   emit LaunchCreated(launchId, msg.sender, bootstrapper, tokenAddress)
+   ```
+
+### Result
+
+- Launch ID issued
+- Bootstrapper ready for deposits
+- LPs can start depositing ETH
+
+---
+
+## Flow 2: LP Deposit
+
+**Actor:** Liquidity Provider
+
+**Prerequisite:** Launch deployed and deposit window open
+
+### Steps
+
+```solidity
+bootstrapper.depositETH() // msg.value = 10 ether
+```
+
+### Backend Actions
+
+1. **Validate Preconditions**
+   ```solidity
+   require(!paused, "Deposits paused");
+   require(!launched, "Already launched");
+   require(!failed, "Launch failed");
+   require(block.timestamp <= raiseEndTime, "Deposit window closed");
+   require(msg.value > 0, "Must deposit something");
+   ```
+
+2. **Check Hard Cap (if set)**
+   ```solidity
+   if (hardCapETH > 0) {
+       require(
+           totalDepositedETH + msg.value <= hardCapETH,
+           "Hard cap exceeded"
+       );
+   }
+   ```
+
+3. **Mint Shares**
+   ```solidity
+   shares[msg.sender] += msg.value;
+   totalShares += msg.value;
+   totalDepositedETH += msg.value;
+   ```
+
+4. **Emit Event**
+   ```solidity
+   emit Deposit(msg.sender, msg.value, msg.value);
+   // Second value = shares minted (1:1 ratio)
+   ```
+
+### Result
+
+- LP receives shares equal to ETH deposited
+- Shares track LP's governance voting power
+- LP can deposit again up to hard cap
+
+### Multiple Deposits Example
+
+```
+LP address: 0xAlice
+Deposit 1: 10 ETH → shares[Alice] = 10
+Deposit 2: 5 ETH  → shares[Alice] = 15
+Total deposits: 15 ETH
+Voting power: 15 shares
+```
+
+---
+
+## Flow 3: Launch Execution
+
+**Actor:** Anyone (permissionless)
+
+**Prerequisites:** 
+- Deposit window closed (`block.timestamp > raiseEndTime`)
+- Target reached (`totalDepositedETH >= targetLiquidityETH`)
+
+### Steps
+
+```solidity
+bootstrapper.launch() // msg.sender can be anyone
+```
+
+### Backend Actions
+
+1. **Verify Launch Conditions**
+   ```solidity
+   require(!launched, "Already launched");
+   require(!failed, "Launch failed");
+   require(block.timestamp > raiseEndTime, "Deposits still open");
+   require(totalDepositedETH >= targetLiquidityETH, "Target not met");
+   ```
+
+2. **Calculate Maturity Time**
+   ```solidity
+   maturityTime = raiseEndTime + lockDuration;
+   ```
+
+3. **Approve Uniswap Router**
+   ```solidity
+   revvToken.approve(uniswapRouter, liquidityAllocation);
+   weth.approve(uniswapRouter, totalDepositedETH);
+   ```
+
+4. **Add Liquidity to Uniswap V2**
+   ```solidity
+   (uint256 amountToken, uint256 amountETH, uint256 lpTokens) = 
+       uniswapRouter.addLiquidityETH{value: totalDepositedETH}(
+           address(revvToken),
+           liquidityAllocation,
+           liquidityAllocation * 99 / 100,  // 1% slippage
+           totalDepositedETH * 99 / 100,     // 1% slippage
+           address(this),                    // Receiver (bootstrapper)
+           block.timestamp + 15 minutes
+       );
+   
+   uniLPTokenAmount = lpTokens;
+   ```
+
+5. **Transfer Vault Allocations**
+   ```solidity
+   // Creator vesting
+   revvToken.transfer(
+       creatorVestingVault,
+       creatorVestingAmount
+   );
+   
+   // Treasury (LP-controlled)
+   revvToken.transfer(treasuryVault, treasuryAmount);
+   
+   // Strategic (Stricter governance)
+   revvToken.transfer(strategicReserveVault, strategicReserveAmount);
+   
+   // Rewards (Scheduled emissions)
+   revvToken.transfer(rewardsDistributor, rewardsAmount);
+   ```
+
+6. **Set Launch Flag**
+   ```solidity
+   launched = true;
+   ```
+
+7. **Pay Caller Incentive**
+   ```solidity
+   (bool success, ) = msg.sender.call{value: 0.01 ether}("");
+   require(success);
+   ```
+
+8. **Emit Success Event**
+   ```solidity
+   emit LaunchSuccess(
+       totalDepositedETH,
+       liquidityAllocation,
+       uniLPTokenAmount,
+       maturityTime,
+       msg.sender  // Caller
+   );
+   ```
+
+### Result
+
+- Liquidity deployed to Uniswap V2
+- Token now tradeable on Uniswap
+- Lock period begins: LPs cannot withdraw until `maturityTime`
+- Creator vesting begins
+
+---
+
+## Flow 4: Refund (Launch Failed)
+
+**Actor:** LP
+
+**Prerequisites:**
+- Deposit window closed (`block.timestamp > raiseEndTime`)
+- Target NOT reached (`totalDepositedETH < targetLiquidityETH`)
+
+### Steps
+
+```solidity
+// First LP to call sets failed flag
+bootstrapper.refundLP();
+
+// Other LPs call same function to claim refunds
+bootstrapper.refundLP();
+```
+
+### Backend Actions (First Call)
+
+1. **Verify Failure Conditions**
+   ```solidity
+   require(!launched, "Already launched");
+   require(block.timestamp > raiseEndTime, "Deposit still open");
+   require(totalDepositedETH < targetLiquidityETH, "Target met");
+   ```
+
+2. **Set Failed Flag**
+   ```solidity
+   failed = true;  // Prevents future launches
+   ```
+
+### Backend Actions (Subsequent Calls)
+
+1. **Verify Failure Conditions**
+   ```solidity
+   require(failed, "Not a failed launch");
+   require(!refundClaimed[msg.sender], "Already claimed");
+   ```
+
+2. **Calculate Refund Amount**
+   ```solidity
+   uint256 ethAmount = shares[msg.sender];
+   ```
+
+3. **Mark as Claimed & Burn Shares**
+   ```solidity
+   refundClaimed[msg.sender] = true;
+   shares[msg.sender] = 0;
+   totalShares -= ethAmount;
+   totalDepositedETH -= ethAmount;
+   ```
+
+4. **Transfer ETH**
+   ```solidity
+   (bool success, ) = msg.sender.call{value: ethAmount}("");
+   require(success, "Transfer failed");
+   ```
+
+5. **Emit Event**
+   ```solidity
+   emit Refund(msg.sender, ethAmount);
+   ```
+
+### Result
+
+- LP recovers all deposited ETH
+- Shares burned
+- Token allocation retained by bootstrapper (worthless, never launched)
+- Creator's 0.1 ETH fee is NOT refunded (platform keeps it)
+
+### Example: Multiple LPs Refunding
+
+```
+Launch Target: 100 ETH
+Actual Deposits: 75 ETH
+
+LP Alice: deposited 30 ETH → receives 30 ETH back
+LP Bob: deposited 25 ETH → receives 25 ETH back
+LP Charlie: deposited 20 ETH → receives 20 ETH back
+
+Platform keeps: 0.1 ETH (launch fee)
+```
+
+---
+
+## Flow 5: Withdrawal (LP)
+
+**Actor:** LP
+
+**Prerequisites:**
+- Launch succeeded (`launched == true`)
+- Maturity reached (`block.timestamp >= maturityTime`)
+- Shares > 0 (`shares[msg.sender] > 0`)
+
+### Option A: Withdraw as Assets (ETH + Tokens)
+
+```solidity
+bootstrapper.withdrawAsAssets(shareAmount);
+```
+
+**Backend Actions:**
+
+1. **Verify Preconditions**
+   ```solidity
+   require(launched, "Not launched");
+   require(block.timestamp >= maturityTime, "Still locked");
+   require(!paused, "Withdrawals paused");
+   require(shares[msg.sender] >= shareAmount, "Insufficient shares");
+   ```
+
+2. **Calculate LP's Uniswap LP Token Allocation**
+   ```solidity
+   uint256 shareFraction = (shareAmount * 1e18) / totalShares;
+   uint256 lpTokensToRemove = (shareFraction * uniLPTokenAmount) / 1e18;
+   ```
+
+3. **Remove Liquidity from Uniswap**
+   ```solidity
+   (uint256 amountToken, uint256 amountETH) = 
+       uniswapRouter.removeLiquidityETH(
+           address(revvToken),
+           lpTokensToRemove,
+           0,  // minTokenOut
+           0,  // minEthOut
+           address(this),
+           block.timestamp + 15 minutes
+       );
+   ```
+
+4. **Calculate LP's Proportional Output**
+   ```solidity
+   uint256 userETH = (amountETH * shareAmount) / totalShares;
+   uint256 userTokens = (amountToken * shareAmount) / totalShares;
+   ```
+
+5. **Update Share Tracking**
+   ```solidity
+   totalShares -= shareAmount;
+   shares[msg.sender] -= shareAmount;
+   ```
+
+6. **Transfer Assets to LP**
+   ```solidity
+   (bool success, ) = msg.sender.call{value: userETH}("");
+   require(success);
+   revvToken.transfer(msg.sender, userTokens);
+   ```
+
+7. **Emit Event**
+   ```solidity
+   emit WithdrawAsAssets(msg.sender, userETH, userTokens);
+   ```
+
+### Option B: Withdraw as ETH Only
+
+```solidity
+bootstrapper.withdrawAsETH(shareAmount, minEthOut);
+```
+
+**Backend Actions:** (Same as Option A, then...)
+
+8. **Swap Tokens to ETH**
+   ```solidity
+   revvToken.approve(uniswapRouter, userTokens);
+   
+   uint256[] memory amounts = uniswapRouter.swapExactTokensForETH(
+       userTokens,
+       minEthOut,
+       path,  // [revvToken, weth]
+       msg.sender,
+       block.timestamp + 15 minutes
+   );
+   
+   uint256 ethFromSwap = amounts[amounts.length - 1];
+   ```
+
+9. **Transfer Total ETH**
+   ```solidity
+   (bool success, ) = msg.sender.call{value: userETH + ethFromSwap}("");
+   require(success);
+   ```
+
+10. **Emit Event**
+    ```solidity
+    emit WithdrawAsETH(msg.sender, userETH + ethFromSwap);
+    ```
+
+### Result
+
+- LP's position closed
+- Shares burned
+- LP receives proportional share of Uniswap liquidity
+- Either direct tokens or swapped to ETH
+
+---
+
+## Flow 6: Governance Proposal (Treasury Release)
+
+**Actor:** Any LP (voting power >= voting threshold)
+
+**Prerequisites:** 
+- Launch succeeded and matured
+- LP has voting power (shares > 0)
+
+### Steps
+
+```solidity
+governance.propose({
+    proposalType: 0,  // Treasury
+    target: treasuryVault,
+    data: abi.encodeCall(
+        TreasuryVault.releaseTokens,
+        (recipientAddress, amount, description)
+    ),
+    description: "Fund marketing campaign"
+});
+```
+
+### Backend Actions
+
+1. **Validate Proposer**
+   ```solidity
+   uint256 votingPower = bootstrapper.shares(msg.sender);
+   require(votingPower > 0, "No voting power");
+   ```
+
+2. **Create Proposal**
+   ```solidity
+   uint256 proposalId = ++proposalCounter;
+   proposals[proposalId] = Proposal({
+       proposalType: 0,
+       target: treasuryVault,
+       data: data,
+       votesFor: 0,
+       votesAgainst: 0,
+       createdAt: block.timestamp,
+       timelockExpires: block.timestamp + 7 days,  // 7-day timelock
+       executed: false,
+       description: description
+   });
+   ```
+
+3. **Emit Event**
+   ```solidity
+   emit ProposalCreated(proposalId, msg.sender, description);
+   ```
+
+### Voting Phase
+
+```solidity
+governance.castVote(proposalId, true);  // true = FOR, false = AGAINST
+```
+
+**Backend Actions:**
+
+1. **Validate Voter**
+   ```solidity
+   require(!hasVoted[proposalId][msg.sender], "Already voted");
+   ```
+
+2. **Record Vote**
+   ```solidity
+   uint256 votingPower = bootstrapper.shares(msg.sender);
+   if (forAgainst) {
+       proposals[proposalId].votesFor += votingPower;
+   } else {
+       proposals[proposalId].votesAgainst += votingPower;
+   }
+   hasVoted[proposalId][msg.sender] = true;
+   ```
+
+3. **Emit Event**
+   ```solidity
+   emit VoteCast(msg.sender, proposalId, forAgainst, votingPower);
+   ```
+
+### Execution Phase
+
+```solidity
+governance.executeProposal(proposalId);
+```
+
+**Backend Actions:**
+
+1. **Verify Approval**
+   ```solidity
+   Proposal proposal = proposals[proposalId];
+   uint256 approvalThreshold = 60;  // Treasury needs 60%
+   uint256 totalVotes = proposal.votesFor + proposal.votesAgainst;
+   uint256 approvableVotes = (totalVotes * approvalThreshold) / 100;
+   
+   require(proposal.votesFor >= approvableVotes, "Threshold not met");
+   ```
+
+2. **Check Timelock**
+   ```solidity
+   require(block.timestamp >= proposal.timelockExpires, "Timelock active");
+   ```
+
+3. **Execute Proposal**
+   ```solidity
+   (bool success, ) = proposal.target.call(proposal.data);
+   require(success, "Execution failed");
+   ```
+
+4. **Mark Executed**
+   ```solidity
+   proposal.executed = true;
+   ```
+
+5. **Emit Event**
+   ```solidity
+   emit ProposalExecuted(proposalId);
+   ```
+
+---
+
+## Next Steps
+
+- Learn [Governance & Voting](/mechanics/governance) in detail
+- Understand [Popularity Scoring](/mechanics/popularity) mechanics
+- Review [Reference](/reference) for function signatures and fees
