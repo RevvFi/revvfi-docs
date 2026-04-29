@@ -1,1 +1,1 @@
-testing the supabase working
+checking the final flow of the supabase edge function
