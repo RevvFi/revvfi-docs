@@ -1,1 +1,1 @@
-checking the final flow of the supabase edge function
+Updated the Supabase Edge function to make sure fix the alert table duplicate and the deployment status count
