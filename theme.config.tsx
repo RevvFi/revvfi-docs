@@ -2,17 +2,16 @@ import { DocsThemeConfig } from 'nextra-theme-docs'
 
 const config: DocsThemeConfig = {
   logo: (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+    <div className="site-brand" role="img" aria-label="RevvFi docs">
       <img
-        src="/android-chrome-192x192.png"
+        src="/favicon.svg"
         alt="RevvFi Logo"
-        width={32}
-        height={32}
-        style={{ borderRadius: '50%' }}
+        className="site-logo"
+        width={40}
+        height={40}
+        title="RevvFi"
       />
-      <span style={{ fontWeight: 'bold', fontSize: '1.2rem', letterSpacing: '-0.02em' }}>
-        RevvFi Docs
-      </span>
+      <span className="site-title">RevvFi Docs</span>
     </div>
   ),
 
@@ -22,6 +21,10 @@ const config: DocsThemeConfig = {
 
   chat: {
     link: 'https://discord.gg/KJ3ttJq5D3',
+  },
+
+  navbar: {
+    extraContent: null
   },
 
   docsRepositoryBase: 'https://github.com/RevvFi/revvfi-docs/blob/main',

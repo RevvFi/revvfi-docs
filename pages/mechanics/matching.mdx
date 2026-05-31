@@ -1,0 +1,51 @@
+# Matching Engine
+
+The RevvFi Matching Engine is the core component that facilitates peer-to-peer lending by pairing borrow requests with lender offers based on transparency, competitiveness, and seniority.
+
+## The Matching Algorithm
+
+When a borrower requests a loan of amount $L$ against their market, the protocol executes the following steps:
+
+### 1. Offer Selection
+The engine scans the `OfferBook` for all offers where:
+- `status == ACTIVE`
+- `minAPR <= MarketTargetAPR`
+- `LenderBalance >= RequestedAmount` (or partial fills allowed)
+
+### 2. Prioritization Matrix
+Offers are sorted based on three primary criteria in descending order of priority:
+
+| Priority | Criteria | Logic |
+| :--- | :--- | :--- |
+| **1** | **Seniority** | Senior offers (Tier 0) are matched before Junior offers (Tier 1). |
+| **2** | **APR** | Matches from lowest APR to highest APR (best price for borrower). |
+| **3** | **Timestamp** | "First-in, first-out" (FIFO) for identical APRs/Seniority. |
+
+### 3. Execution
+1. The engine calculates the weighted average APR.
+2. It locks the required funds from lender accounts.
+3. It mints `LenderPosition` NFTs for each participating lender.
+4. Total requested principal is transferred to the borrower.
+
+---
+
+## Seniority Tiers
+
+RevvFi supports a tiered risk model:
+
+- **Senior Tiers (Default):** These lenders are paid back first during regular repayments and have priority claims during liquidations. Because they take less risk, they typically offer lower APRs.
+- **Junior Tiers:** These lenders take "first-loss" risk. They are paid only after senior obligations are met, but they earn significantly higher APRs to compensate for the risk.
+
+## Matching Example
+
+**Borrower Request:** 10,000 USDC
+
+**Available Offers:**
+- Offer A: 5,000 USDC @ 5% APR (Senior)
+- Offer B: 5,000 USDC @ 7% APR (Senior)
+- Offer C: 5,000 USDC @ 10% APR (Junior)
+
+**Result:**
+- Engine matches 100% of Offer A and 100% of Offer B.
+- **Effective APR:** 6%
+- Offer C remains in the book.

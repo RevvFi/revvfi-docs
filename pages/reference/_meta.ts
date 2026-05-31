@@ -1,7 +1,9 @@
 export default {
   index: 'Overview',
-  events: 'Events & Errors',
-  'gas-estimates': 'Gas Estimates',
-  deployment: 'Deployment Config',
   glossary: 'Glossary',
+  '-- Technical': {
+    type: 'separator',
+  },
+  deployment: 'Deployment Info',
+  events: 'Event Reference',
 }

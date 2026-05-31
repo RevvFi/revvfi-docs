@@ -1,103 +1,65 @@
-# RevvFi Documentation
+# RevvFi Protocol
 
-Welcome to the official technical documentation for **RevvFi** — a liquidity-backed token launch protocol for trustless, LP-governed launches.
-
-## What is RevvFi?
-
-RevvFi is a blockchain protocol that enables fair, transparent token launches governed by liquidity providers. Instead of centralized control, LPs pool ETH, receive governance shares, and collectively decide on fund allocation and project parameters.
-
-### Key Features
-
-- **LP-Governed Launches** - Liquidity providers control treasury and strategic funds
-- **Per-Token Isolation** - Each launch has independent contracts and parameters  
-- **Internal Share Ledger** - No separate governance token needed
-- **Trustless Refunds** - Automatic ETH refunds if launch fails
-- **Popularity Scoring** - On-chain metrics help LPs evaluate opportunities
-- **Creator Vesting** - Multi-sig protection with cliff + linear schedules
-
-## Documentation Sections
-
-### [Architecture](/architecture)
-Deep dive into the smart contract design, core contracts, data structures, and deployment patterns that power RevvFi.
-
-- Smart Contract Specifications
-- Core Architectural Decisions
-- Data Storage Patterns
-- Contract Interactions
-
-### [Mechanics](/mechanics)
-Understand how deposits, launches, governance, and withdrawals work in practice.
-
-- Full Launch Deployment Flow
-- Deposit & Refund Flows
-- Withdrawal Mechanics
-- Governance Voting
-- Popularity Score Calculation
-
-### [Reference](/reference)
-Technical specifications, function signatures, event definitions, and deployment configuration.
-
-- Function Reference
-- Event Specifications
-- Gas Estimates
-- Deployment Networks
-- Fee Configuration
-
-### [Security](/security)
-Security boundaries, safety assumptions, attack vectors, and risk mitigations.
-
-- Fee Controls
-- Refund Safety
-- Maturity Time Invariants
-- Treasury Controls
-- Governance Protection
+A decentralized lending protocol enabling peer-to-peer loan matching with variable interest rates, collateralized borrowing, and reputation-based risk assessment on the blockchain.
 
 ---
 
-## Quick Start
+## Overview
 
-### For Developers
+RevvFi is a sophisticated decentralized lending protocol that facilitates peer-to-peer lending with dynamic interest rate discovery through competitive offer mechanisms. The protocol is designed to support multiple independent lending markets, each with its own borrower, collateral requirements, and lender communities.
 
-```bash
-git clone https://github.com/RevvFi/revvfi-docs.git
-cd revvfi-docs
-pnpm install
-pnpm dev
-```
+### Protocol Highlights
 
-Visit `http://localhost:3000`
-
-### For Integrators
-
-1. Review [Architecture](/architecture) to understand contract design
-2. Check [Reference](/reference) for function signatures
-3. Examine [Security](/security) for safety considerations
-4. Deploy using [Deployment Patterns](/reference#deployment)
-
-### For LPs
-
-1. Start with [Mechanics](/mechanics) to understand workflows
-2. Learn about [Popularity Scoring](/mechanics/flows#popularity-oracle)
-3. Review [Security](/security) for risk assessment
-4. Check [Reference](/reference) for fees and lock durations
+- **Dynamic Market Creation:** Borrowers can deploy custom lending markets with configurable collateral types and parameters
+- **Flexible Interest Rate Discovery:** Lenders submit competitive offers with varying APRs, allowing automatic price discovery
+- **Collateral Management:** Secure collateral escrow with oracle-based valuation and health monitoring
+- **Advanced Liquidation:** Dutch auction-based liquidation mechanism for efficient collateral recovery
+- **Reputation Scoring:** On-chain reputation system tracking borrower performance across all markets
+- **Position NFTs:** Lender positions are represented as transferable ERC721 tokens
+- **Withdrawal Queue:** Epoch-based withdrawal system preventing bank runs and ensuring orderly liquidity management
+- **Tiered Lending:** Support for senior and junior lending positions with different risk/reward profiles
 
 ---
 
-## Version & Status
+## Key Features
 
-- **Current Version:** 2.0
-- **Release Date:** April 2026
-- **Networks:** Base, Arbitrum, Ethereum (optional)
-- **Status:** Technical Specification
+### 1. Multi-Market Architecture
+Each borrower controls an independent lending market where they can secure loans. Markets are isolated, allowing borrowers to manage reputation and collateral separately.
 
----
+### 2. Competitive Offer Matching
+Lenders submit offers with custom APRs and seniority levels. The protocol matches borrow requests with the most favorable offers, with senior offers prioritized.
 
-## Community
+### 3. Collateral Escrow & Health Monitoring
+Collateral is held in a dedicated escrow contract with continuous health monitoring:
+- **Min Collateral Ratio:** Minimum required collateral value vs. debt
+- **Liquidation Threshold:** Ratio at which position becomes liquidatable
+- **Oracle Integration:** Chainlink price feeds for real-time collateral valuation
 
-- **Website:** [revvfi.xyz](https://revvfi.xyz)
-- **GitHub:** [github.com/RevvFi](https://github.com/RevvFi)
-- **Discord:** [discord.gg/KJ3ttJq5D3](https://discord.gg/KJ3ttJq5D3)
-- **Twitter/X:** [@revvfi_xyz](https://x.com/revvfi_xyz)
+### 4. Interest Accrual Engine
+- Per-position APR tracking
+- Automatic compound interest calculation
+- Synchronized accrual across all active positions
+- Real-time interest updates during borrowing and repayment
+
+### 5. Dutch Auction Liquidation
+When positions become undercollateralized, collateral is auctioned:
+- **Starting price:** 100% of debt
+- **Decreasing price:** Configurable step-based price reductions
+- **Reserve price:** 80% of debt ensures minimum recovery
+- **Bid-time auction extension:** Late bids extend auction window
+
+### 6. Reputation & Risk Rating
+Borrowers earn reputation scores (0-1000) based on:
+- **Starting Score:** 500 for new borrowers
+- **Success Bonus:** +1 point per successful loan repayment
+- **Default Penalty:** -50 points per default
+- **Risk Labels:** AAA (900+), AA (800-899), A (700-799), B (500-699), C (300-499), D (`<300`)
+
+### 7. Position NFTs
+Lender positions are ERC721 NFTs encoding principal amount, APR, seniority, and market association.
+
+### 8. Liquidity Queue Management
+Epoch-based withdrawal system with 7-day intervals to ensure orderly liquidity management and prevent bank runs.
 
 ---
 

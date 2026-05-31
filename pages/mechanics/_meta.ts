@@ -1,6 +1,6 @@
 export default {
   index: 'Overview',
-  flows: 'System Flows',
-  governance: 'Governance & Voting',
-  popularity: 'Popularity Scoring',
+  matching: 'Matching Engine',
+  liquidation: 'Dutch Auctions',
+  reputation: 'Risk & Reputation',
 }

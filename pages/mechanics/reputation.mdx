@@ -1,0 +1,38 @@
+# Risk & Reputation
+
+RevvFi differentiates itself by using a dynamic, on-chain reputation system that directly impacts borrowing costs and limits.
+
+## Reputation Score (RS)
+Every borrower is assigned a Reputation Score between **0 and 1000**.
+
+### Score Calculations
+- **Starting Score:** 500
+- **Successful Full Repayment:** +1 point
+- **Early Repayment Bonus:** +2 points
+- **Liquidation (Default) Penalty:** -50 points
+- **Late Payment Penalty:** -5 points per day late
+
+## Risk Tiers
+Based on the RS, borrowers are categorized into Risk Tiers. These tiers are visible to all lenders in the `OfferBook`.
+
+| Score Range | Label | Description |
+| :--- | :--- | :--- |
+| **900 - 1000** | **AAA** | Prime borrower, lowest risk. |
+| **800 - 899** | **AA** | Highly reliable. |
+| **700 - 799** | **A** | Reliable with minor history. |
+| **500 - 699** | **B** | Standard/New borrower. |
+| **300 - 499** | **C** | High risk, past defaults. |
+| **0 - 299** | **D** | Critical risk, multiple defaults. |
+
+---
+
+## Technical Impact of Reputation
+
+Reputation is not just a cosmetic badge; it is enforced by the smart contracts:
+
+1. **APR Flooring:** Lenders can set filters to only match with borrowers above a certain RS. High RS borrowers naturally attract lower APR offers.
+2. **Loan-to-Value (LTV) Boost:** AAA borrowers may be granted up to 90% LTV on specific volatile assets, while D-tier borrowers might be capped at 40%.
+3. **Liquidation Thresholds:** Higher reputation can lead to slightly more "grace" in liquidation thresholds, reducing the risk of liquidation during minor flash crashes.
+
+## Reputation Recovery
+If a borrower defaults and their score drops, the only way to recover is through a series of successful, smaller "reputation-building" loans. This creates an on-chain credit history that lenders can trust without requiring real-world identity.

@@ -1,0 +1,38 @@
+# Dutch Auction Liquidation
+
+Liquidations in RevvFi are handled via a transparent, on-chain Dutch Auction mechanism to ensure that collateral is sold at a fair market price while protecting lender principal.
+
+## Auction Trigger
+Any user (the "liquidator") can trigger a liquidation when a position's Health Factor falls below **1.0**.
+
+## Auction Phases
+
+### 1. Initialization
+When `startAuction()` is called:
+- Collateral is locked in the auction contract.
+- The starting price is set to **100% of the outstanding debt** (Principal + Accrued Interest).
+
+### 2. Price Decay
+The price of the collateral decreases linearly or in steps over a fixed window (e.g., 24 hours).
+
+- **Start Price:** 100% of Debt
+- **Reserve Price:** 80% of Debt (The floor price below which the auction will not sell)
+
+### 3. Settlement
+A liquidator can call `bid()` at any point.
+- The liquidator pays the current auction price in the loan currency.
+- The liquidator receives the collateral assets.
+- The protocol distributes the proceeds to lenders according to their **Seniority**.
+
+---
+
+## Bid-Time Extension
+To prevent "sniping" at the very end of an auction, RevvFi implements a **Bid-Extension** (often called a "Gavel" mechanism):
+- If a bid is placed within the last 15 minutes of an auction, the auction window is extended by another 15 minutes.
+- This ensures the market has time to react to late price discovery.
+
+## Revenue Split
+If an auction settles above 100% of the debt:
+1. **Lenders:** Receive 100% of Principal + Interest.
+2. **Liquidator:** Receives the collateral.
+3. **Borrower:** Receives the remaining "surplus" collateral value (if any).

@@ -5,24 +5,24 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   /* Colors based on requirements (dark defaults) */
-  --bg-color: #0a0a0a;
-  --fg-color: #e5e5e5;
+  --bg-color: #050505;
+  --fg-color: #f1f5f9;
   --heading-color: #ffffff;
-  --primary: #7c3aed;
-  --primary-light: #a78bfa;
-  --border-color: #1f1f1f;
-  --muted-text: #737373;
-  --surface-1: #0f0f0f;
-  --surface-2: #161616;
+  --primary: #f97316;
+  --primary-light: #fb923c;
+  --border-color: #1a1a1a;
+  --muted-text: #94a3b8;
+  --surface-1: #0a0a0a;
+  --surface-2: #121212;
   --code-bg: #000000;
-  --inline-code-bg: rgba(255, 255, 255, 0.1);
-  --callout-bg: rgba(124, 58, 237, 0.05);
-  --callout-border: rgba(124, 58, 237, 0.2);
+  --inline-code-bg: rgba(249, 115, 22, 0.1);
+  --callout-bg: rgba(249, 115, 22, 0.05);
+  --callout-border: rgba(249, 115, 22, 0.2);
 
   /* Nextra specific variables */
-  --nextra-primary-hue: 260deg;
-  --nextra-primary-saturation: 85%;
-  --nextra-primary-lightness: 58%; /* matches #7c3aed */
+  --nextra-primary-hue: 24deg;
+  --nextra-primary-saturation: 94%;
+  --nextra-primary-lightness: 53%; /* matches #f97316 */
 }
 
 html {
@@ -32,19 +32,19 @@ html {
 
 html.light {
   color-scheme: light !important;
-  --bg-color: #f8fafc;
+  --bg-color: #ffffff;
   --fg-color: #0f172a;
   --heading-color: #0b1220;
-  --primary: #6d28d9;
-  --primary-light: #7c3aed;
+  --primary: #ea580c;
+  --primary-light: #f97316;
   --border-color: #e2e8f0;
-  --muted-text: #475569;
-  --surface-1: #ffffff;
+  --muted-text: #64748b;
+  --surface-1: #f8fafc;
   --surface-2: #f1f5f9;
   --code-bg: #0f172a;
-  --inline-code-bg: rgba(15, 23, 42, 0.08);
-  --callout-bg: rgba(109, 40, 217, 0.08);
-  --callout-border: rgba(109, 40, 217, 0.35);
+  --inline-code-bg: rgba(234, 88, 12, 0.08);
+  --callout-bg: rgba(234, 88, 12, 0.08);
+  --callout-border: rgba(234, 88, 12, 0.35);
 }
 
 body {
@@ -82,20 +82,129 @@ body {
   border-bottom: 1px solid var(--border-color) !important;
 }
 
-/* Header / Top Nav */
+/* Final Top Nav Strict Alignment Fix */
 .nextra-nav-container {
   background-color: var(--surface-1) !important;
   border: 1px solid var(--border-color) !important;
   border-radius: 14px;
   margin: 0.75rem 1rem 0;
-  padding: 0.25rem 0.75rem;
+  padding: 0 1.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important; /* Items stay at edges */
+  position: sticky;
+  top: 12px;
+  z-index: 40;
+  height: 60px !important;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  max-width: none !important;
 }
 
-.nextra-nav-container input[type="search"],
-.nextra-search input {
-  background-color: var(--surface-2) !important;
+/* Group Search and Social Icons to the absolute LEFT */
+.nextra-nav-container .nx-flex.nx-gap-2,
+.nextra-nav-container .nextra-search,
+.nextra-nav-container > :first-child {
+  order: 1 !important;
+  margin-left: 0 !important;
+  margin-right: 1rem !important;
+}
+
+/* Push the Site Logo to the absolute RIGHT */
+.nextra-nav-container .site-brand {
+  order: 100 !important;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  display: flex !important;
+}
+
+/* Find and kill the auto-growing spacer Nextra uses to center content */
+.nextra-nav-container .nx-flex-1,
+.nextra-nav-container .nx-grow {
+  display: none !important;
+  flex: none !important;
+}
+
+/* Ensure the header content container doesn't force centering */
+.nextra-nav-container nav,
+.nextra-nav-container > div {
+  width: 100% !important;
+  display: flex !important;
+  justify-content: flex-start !important;
+  max-width: none !important;
+  padding: 0 !important;
+}
+
+/* Search bar stability */
+.nextra-search {
+  min-width: 250px !important;
+  flex: none !important;
+}
+
+/* Stable header logo/container */
+.site-logo {
+  width: 40px !important;
+  height: 40px !important;
+  display: block !important;
+  object-fit: contain !important;
+  border-radius: 8px !important;
+  filter: none !important; /* ensure logo isn't dimmed */
+}
+
+.nextra-nav-container .site-title {
+  color: var(--heading-color) !important;
+  font-weight: 700;
+  font-size: 1rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+/* Modal / Search Pop-up in the middle */
+.nextra-search ul {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 90% !important;
+  max-width: 650px !important;
+  max-height: 70vh !important;
+  margin: 0 !important;
+  padding: 1rem !important;
+  border-radius: 16px !important;
+  background-color: var(--surface-1) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: 10px !important;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5), 0 20px 50px rgba(0, 0, 0, 0.5) !important;
+  z-index: 1000 !important;
+  overflow-y: auto !important;
+}
+
+/* Light mode search tweak */
+html.light .nextra-search ul {
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.2), 0 20px 50px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Terminal / Code block look in light mode */
+html.light main pre {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  border-radius: 12px !important;
+}
+
+html.light main pre code {
+  color: #1e293b !important;
+}
+
+html.light code:not([class*="language-"]) {
+  background-color: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  font-weight: 500 !important;
+}
+
+/* Header hover effects */
+.nextra-nav-container a:hover {
+  opacity: 0.8;
 }
 
 /* Content Area */

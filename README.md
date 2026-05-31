@@ -1,17 +1,17 @@
 <div align="center">
 
-<img src="/public/android-chrome-192x192.png" width="88" height="88" alt="RevvFi Logo" />
+<img src="/public/favicon.svg" width="88" height="88" alt="RevvFi Logo" />
 
-<h1>RevvFi Docs</h1>
+<h1>RevvFi Documentation</h1>
 
 <p>
-Official technical documentation for the RevvFi protocol<br/>
+Official technical documentation for the RevvFi Decentralized Lending Protocol<br/>
 Built with Next.js, Nextra & React. Deployed on Vercel.
 </p>
 
 <p>
   <a href="https://revvfi.xyz"><img src="https://img.shields.io/badge/Website-revvfi.xyz-000000?style=flat-square&logo=vercel&logoColor=white" /></a>
-  <a href="https://docs.revvfi.xyz"><img src="https://img.shields.io/badge/Docs-live-7c3aed?style=flat-square" /></a>
+  <a href="https://docs.revvfi.xyz"><img src="https://img.shields.io/badge/Docs-live-f97316?style=flat-square" /></a>
   <a href="https://github.com/RevvFi"><img src="https://img.shields.io/badge/GitHub-repo-181717?style=flat-square&logo=github" /></a>
 </p>
 
@@ -21,17 +21,16 @@ Built with Next.js, Nextra & React. Deployed on Vercel.
 
 ## Overview
 
-This repository contains the official technical documentation for **RevvFi** — a liquidity-backed token launch protocol for trustless, LP-governed launches.
+This repository contains the official technical documentation for **RevvFi** — a decentralized lending protocol enabling peer-to-peer loan matching with competitive interest rates and reputation-based risk assessment.
 
 The docs cover:
 
-- **Smart Contract Architecture** — Core contract designs and specifications
-- **System Flows** — Deployment, deposit, launch, and refund mechanics  
-- **Data Structures** — State variables, mappings, and governance
-- **Security Boundaries** — Safety assumptions and attack vectors
-- **Deployment Patterns** — Network selection and configuration
+- **Smart Contract Architecture** — Multi-market matching engine and collateral escrow
+- **Mechanics** — Competitive offer matching, Dutch auction liquidations, and reputation scoring
+- **Data Structures** — Lender position NFTs and global reputation registry
+- **Technical Reference** — Smart contract specifications, event logs, and deployment details
 
-The site is built with **Nextra (Docs Theme)** on top of Next.js and deployed automatically on Vercel.
+The site is built with **Nextra 2 (Docs Theme)** on top of Next.js 14 and styled with the **Orange Dark Premium** brand palette.
 
 ---
 
@@ -39,10 +38,10 @@ The site is built with **Nextra (Docs Theme)** on top of Next.js and deployed au
 
 | Layer      | Technology                    |
 |------------|-------------------------------|
-| Framework  | Next.js 16                    |
-| Docs Theme | Nextra (`nextra-theme-docs`)  |
+| Framework  | Next.js 14.2.35               |
+| Docs Theme | Nextra 2.13.4                 |
 | Styling    | Tailwind CSS 4                |
-| Runtime    | React 19                      |
+| Runtime    | React 18                      |
 | Deployment | Vercel                        |
 
 ---
@@ -50,8 +49,8 @@ The site is built with **Nextra (Docs Theme)** on top of Next.js and deployed au
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+
-- pnpm (or npm)
+- Node.js 20+ (Required for Tailwind 4 / Oxide)
+- npm
 
 ### Installation & Development
 
@@ -76,25 +75,27 @@ npm run dev
 revvfi-docs/
 ├── pages/
 │   ├── index.mdx
-│   ├── _meta.json
+│   ├── _meta.ts
 │   ├── architecture/
-│   │   ├── _meta.json
+│   │   ├── _meta.ts
 │   │   ├── index.mdx
-│   │   └── [smart-contracts].mdx
+│   │   └── contracts.mdx
 │   ├── mechanics/
-│   │   ├── _meta.json
+│   │   ├── _meta.ts
 │   │   ├── index.mdx
-│   │   └── [flows].mdx
-│   ├── reference/
-│   │   ├── _meta.json
-│   │   ├── index.mdx
-│   │   └── [specs].mdx
-│   └── security/
-│       ├── _meta.json
-│       └── index.mdx
+│   │   ├── matching.mdx
+│   │   ├── liquidation.mdx
+│   │   └── reputation.mdx
+│   └── reference/
+│       ├── _meta.ts
+│       ├── index.mdx
+│       ├── deployment.mdx
+│       └── events.mdx
 ├── public/
+│   └── favicon.svg (Logo)
 ├── theme.config.tsx
-├── next.config.mjs
+├── styles/
+│   └── globals.css (Orange Dark Premium theme)
 └── package.json
 ```
 
@@ -105,9 +106,13 @@ revvfi-docs/
 ### Local Build
 
 ```bash
-pnpm build
-pnpm start
+npm run build
+npm run start
 ```
+
+### CI/CD
+Automated deployment is handled via Vercel for production and GitHub Actions for CI validation on every push to `main`.
+
 ---
 
 ## Contributing
@@ -115,14 +120,9 @@ pnpm start
 Contributions to the documentation are welcome. Please:
 
 - Open a PR against `main`
-- Keep formatting consistent with existing docs
-- Update `_meta.json` files when adding new pages
-- Test locally with `pnpm dev` before submitting
-
-For protocol-level contributions:
-
-- Smart contract improvements → [revvfi-contracts](https://github.com/RevvFi/revvfi-contracts)
-- Security issues → Security team (see contacts below)
+- Keep formatting consistent with the **Orange Dark Premium** design
+- Update `_meta.ts` files when adding new sections
+- Verify the build with `npm run build` locally before submitting
 
 ---
 
@@ -133,7 +133,7 @@ For protocol-level contributions:
     <img src="https://img.shields.io/badge/Website-revvfi.xyz-000000?style=flat-square&logo=vercel&logoColor=white" />
   </a>
   <a href="https://docs.revvfi.xyz">
-    <img src="https://img.shields.io/badge/Docs-docs.revvfi.xyz-7c3aed?style=flat-square" />
+    <img src="https://img.shields.io/badge/Docs-docs.revvfi.xyz-f97316?style=flat-square" />
   </a>
   <a href="https://x.com/revvfi_xyz">
     <img src="https://img.shields.io/badge/X-@revvfi__xyz-000000?style=flat-square&logo=x&logoColor=white" />
@@ -148,23 +148,33 @@ For protocol-level contributions:
 
 ---
 
-## Licenses
+## License
 
 This documentation is released under the **MIT License**.
 
-The RevvFi protocol and smart contracts are licensed separately.
+Copyright (c) 2026 RevvFi.
 
-**Third-party libraries:**
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-- [Next.js](https://nextjs.org) — MIT License
-- [React](https://react.dev) — MIT License
-- [Nextra](https://nextra.site) — MIT License
-- [Tailwind CSS](https://tailwindcss.com) — MIT License
-- [Vercel](https://vercel.com) — Apache 2.0 License
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
 <div align="center">
-  <p><strong>Liquidity-backed token launch protocol for trustless, LP-governed launches.</strong></p>
+  <p><strong>Decentralized peer-to-peer lending with competitive offer matching.</strong></p>
   <p>© 2026 RevvFi. All rights reserved.</p>
 </div>
