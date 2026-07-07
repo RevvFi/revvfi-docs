@@ -6,4 +6,5 @@ export default {
   },
   deployment: 'Deployment Info',
   events: 'Event Reference',
+  'gas-estimates': 'Gas Estimates',
 }

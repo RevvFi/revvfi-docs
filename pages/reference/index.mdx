@@ -2,174 +2,78 @@
 
 Complete technical reference for RevvFi deployments.
 
-## Quick Reference
+## Core Protocol Constants
 
-### Core Constants
-
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| `LAUNCH_FEE` | 0.1 ETH | Creator fee to prevent spam |
-| `MIN_LOCK_DURATION` | 30 days | Minimum LP lock period |
-| `MAX_LOCK_DURATION` | 730 days | Maximum LP lock period |
-| `LAUNCH_INCENTIVE` | 0.01 ETH | Reward for permissionless launch caller |
-| `SLIPPAGE_TOLERANCE` | 1% | Uniswap liquidity add/remove slippage |
-
-### Governance Thresholds
-
-| Fund Type | Approval % | Timelock | Max Release/Quarter |
-|-----------|-----------|----------|---------------------|
-| Treasury | 60% | 7 days | Unlimited |
-| Strategic Reserve | 66% | 14 days | 25% per quarter |
-| Emergency | 80% | 48 hours | N/A |
-| Lock Reduction | 75% + creator | 14 days | N/A |
-
-### Networks
-
-| Network | Priority | Status | Uniswap Router |
-|---------|----------|--------|----------------|
-| Base | Primary | Live | 0x... |
-| Arbitrum | Primary | Live | 0x... |
-| Ethereum | Secondary | Optional | 0x... |
-
----
+| Constant | Value | Location | Purpose |
+|----------|-------|----------|---------|
+| `MAX_APR_BPS` | 5000 (50%) | RevvFiMarket | Protocol-wide APR ceiling, regardless of borrower's own `maxApr` |
+| `BASIS_POINTS` | 10000 | RevvFiMarket | Basis-point denominator used throughout |
+| `MAX_ACTIVE_POSITIONS` | 100 | RevvFiMarket | Cap on simultaneous active positions per market |
+| `DEFAULT_STALE_PRICE_THRESHOLD` | 24 hours | RevvFiCollateralEscrow | Default oracle staleness window (per-market tunable) |
+| `auctionDuration` | 3 days | RevvFiLiquidator | Total liquidation auction window (tunable) |
+| `dutchAuctionStepDuration` | 1 hour | RevvFiLiquidator | Time between each price step (tunable) |
+| `dutchAuctionPriceDecrementBps` | 500 (5%) | RevvFiLiquidator | Price drop per step, as % of debt (tunable) |
+| `minBidIncrementBps` | 100 (1%) | RevvFiLiquidator | Minimum bid increase over the previous highest (tunable) |
+| `auctionExtensionWindow` | 15 minutes | RevvFiLiquidator | Anti-sniping extension on late bids (tunable) |
+| Reserve price | 80% of debt | RevvFiLiquidator | Liquidation auction price floor |
 
 ## Function Quick Reference
 
+### RevvFiArchController
+- `registerBorrower(address)` / `removeBorrower(address)` — owner-only borrower whitelist
+- `isRegisteredBorrower(address)` / `isBlacklistedAsset(address)` — views used by the Factory
+
 ### RevvFiFactory
+- `deployMarket(address borrower, address borrowAsset, address collateralAsset, address collateralOracle, uint8 collateralDecimals, uint8 borrowDecimals, uint256 minCollateralRatio, uint256 liquidationThreshold)` — payable, clones a new market
+- `setDeploymentFee(uint256)` / `setFeeRecipient(address)` — owner-only
 
-- `createLaunch(LaunchConfig)` — Deploy new launch (requires 0.1 ETH)
-- `getLaunch(uint256 launchId)` — Retrieve launch info
-- `pauseLaunch(address)` — Emergency pause (guardian only)
+### RevvFiMarket
+- `depositCollateral(uint256)` / `withdrawCollateral(uint256)`
+- `borrow(uint256 amount, bool useSeniorOnly, uint256 maxApr)`
+- `repay(uint256 amount)` / `repayFull()`
+- `claimFunds(uint256 positionId)`
+- `getTotalOwed()` / `getCurrentPrincipal()` / `getPositionValue(uint256)` / `getPositionClaimable(uint256)`
 
-### RevvFiBootstrapper
+### RevvFiOfferBook
+- `submitOffer(uint256 amount, uint256 apr, uint8 seniority, uint256 duration)`
+- `cancelOffer(uint256 offerId)` / `modifyOffer(uint256, uint256, uint256, uint256)`
+- `getBestOffers(uint256 amount, bool useSeniorOnly)` (view)
 
-- `depositETH()` — LP deposits ETH, receives shares
-- `launch()` — Permissionless execution when target reached
-- `refundLP()` — Claim refund if launch fails
-- `withdrawAsAssets(uint256 shareAmount)` — Withdraw ETH + tokens
-- `withdrawAsETH(uint256 shareAmount)` — Withdraw as ETH only
-- `emergencyPause()` — Guardian pauses deposits
+### RevvFiCollateralEscrow
+- `setMinCollateralRatio(uint256)` / `setLiquidationThreshold(uint256)` / `setStalePriceThreshold(uint256)` — factory-only
+- `getCollateralRatio(address, uint256 debt)` / `isHealthy(address, uint256)` / `isLiquidatable(address, uint256)`
 
-### RevvFiGovernance
+### RevvFiLiquidator
+- `createAuction(...)` — market-only
+- `placeBid(uint256 auctionId, uint256 bidAmount)`
+- `settleAuction(uint256 auctionId)`
 
-- `propose(ProposalType, bytes, string)` — Create governance proposal
-- `castVote(uint256 proposalId, uint256 forAgainst)` — Vote on proposal
-- `executeProposal(uint256 proposalId)` — Execute approved proposal
-- `getVotingPower(address)` — Check LP's voting power
-
-### Vault Contracts
-
-**TreasuryVault / StrategicReserveVault:**
-- `proposeRelease(uint256 amount, string description)` — Propose token release
-- `executeRelease(uint256 proposalId)` — Execute release after vote
-
-**CreatorVestingVault:**
-- `release()` — Creator claims vested tokens
-- `releasableAmount()` — View releasable amount
-
-**RewardsDistributor:**
-- `distributeRewards(address, uint256)` — Governance distributes rewards
-- `getSchedule()` — View distribution schedule
-
----
-
-## Events
-
-### Core Events
-
-**Launch Creation:**
-```
-LaunchCreated(
-    uint256 indexed launchId,
-    address indexed creator,
-    address indexed bootstrapper,
-    address tokenAddress
-)
-```
-
-**Deposits:**
-```
-Deposit(
-    address indexed lp,
-    uint256 ethAmount,
-    uint256 sharesMinted
-)
-```
-
-**Launch Success:**
-```
-LaunchSuccess(
-    uint256 totalDepositedETH,
-    uint256 tokenAmountAdded,
-    uint256 uniLPTokensReceived,
-    uint256 maturityTime,
-    address indexed caller
-)
-```
-
-**Refunds:**
-```
-Refund(
-    address indexed lp,
-    uint256 ethAmount
-)
-```
-
-**Withdrawals:**
-```
-WithdrawAsAssets(
-    address indexed lp,
-    uint256 ethAmount,
-    uint256 tokenAmount
-)
-
-WithdrawAsETH(
-    address indexed lp,
-    uint256 totalEthAmount
-)
-```
-
-**Governance:**
-```
-ProposalCreated(
-    uint256 indexed proposalId,
-    address indexed proposer,
-    string description
-)
-
-VoteCast(
-    address indexed voter,
-    uint256 indexed proposalId,
-    uint256 forAgainst,
-    uint256 votingPower
-)
-
-ProposalExecuted(
-    uint256 indexed proposalId
-)
-```
+### ReputationRegistry
+- `getReputationScore(address)` / `getRiskLabel(address)` / `getBorrowerProfile(address)` (views)
 
 ---
 
 ## Common Errors
 
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `"Deposits paused"` | Guardian paused launch | Wait for guardian to unpause |
-| `"Already launched"` | Launch already executed | Proceed to withdrawal phase |
-| `"Deposit window closed"` | Past raiseEndTime | Try to launch or get refund |
-| `"Hard cap exceeded"` | Deposit exceeds hard cap | Deposit less or wait for next launch |
-| `"Target not met"` | Insufficient deposits | Claim refund after raiseEndTime |
-| `"Still locked"` | Before maturityTime | Wait until lock period ends |
-| `"Insufficient shares"` | Trying to withdraw too much | Check share balance |
-| `"Threshold not met"` | Proposal votes insufficient | Cannot execute proposal |
-| `"Timelock active"` | Execution timelock not elapsed | Wait for timelock to expire |
+| Error | Cause |
+|-------|-------|
+| `BorrowerNotRegistered` | Borrower isn't approved in `RevvFiArchController` |
+| `AssetBlacklisted` | Borrow asset, collateral asset, or oracle is blacklisted |
+| `InsufficientFee` | `msg.value` doesn't match the Factory's `deploymentFee` |
+| `BorrowAmountTooHigh` | Requested amount exceeds `getMaxBorrowable()` |
+| `MaxAprExceeded` | The fill's weighted-average APR exceeds the borrower's `maxApr` (or the protocol's `MAX_APR_BPS` cap) |
+| `NoOffersAvailable` | No active offers match the request |
+| `TooManyActivePositions` | Would exceed `MAX_ACTIVE_POSITIONS` |
+| `OraclePriceStale` | Chainlink `latestRoundData()` is older than `stalePriceThreshold`, or otherwise invalid |
+| `InsufficientCollateral` | Withdrawal or health check would breach `minCollateralRatio` |
+| `AuctionNotFound` / `AuctionNotActive` / `AuctionAlreadySettled` | Liquidation auction lifecycle guards |
+| `BidTooLow` | Bid doesn't meet the current price / minimum increment over the highest bid |
 
 ---
 
 ## Next Steps
 
-- Review [Events & Errors](/reference/events) for detailed event specs
-- Check [Gas Estimates](/reference/gas-estimates) for costs
-- View [Deployment Config](/reference/deployment) for network addresses
+- Review [Events](/reference/events) for the full event log
+- Check [Gas Estimates](/reference/gas-estimates) for representative operation costs
+- View [Deployment](/reference/deployment) for network addresses
 - Read [Glossary](/reference/glossary) for terminology

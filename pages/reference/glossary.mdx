@@ -4,340 +4,152 @@ Technical terminology and definitions for RevvFi.
 
 ## A
 
-### Approval Threshold
-The percentage of voting shares required to approve a governance proposal. Different proposals have different thresholds:
-- Treasury: 60%
-- Strategic Reserve: 66%
-- Emergency: 80%
+### APR (Annual Percentage Rate)
+The interest rate a lender quotes on an offer, stored in basis points. Each position accrues at its own quoted APR — never a shared or blended rate.
 
-### AMM (Automated Market Maker)
-Decentralized exchange mechanism using liquidity pools. RevvFi uses Uniswap V2's AMM for token trading.
+### Auction Extension Window
+The time window (15 minutes by default) within which a new bid pushes a liquidation auction's `endTime` forward, preventing last-second sniping.
 
 ---
 
 ## B
 
-### Bootstrapper
-See **RevvFiBootstrapper**
+### Basis Points (bps)
+1/100th of a percent. `10000 bps = 100%`. Used throughout RevvFi for APRs, collateral ratios, and fee percentages.
 
-### Bounty
-See **Launch Incentive**
+### Bad Debt
+The portion of a liquidated position's debt not recovered by the auction's winning bid. Recorded against the market and factored into the borrower's reputation.
+
+### Borrow Asset
+The token being lent/borrowed in a market (e.g. USDC).
 
 ---
 
 ## C
 
-### Cliff Duration
-The period during which no tokens are released to the creator. After cliff expires, linear vesting begins. Example: 1-year cliff means creator receives nothing for 12 months.
+### Collateral Asset
+The token a borrower posts as collateral against their debt (e.g. WETH).
 
-### Creator Vesting
-The schedule by which creator tokens unlock after launch. Includes cliff (locked period) and vesting (linear release).
+### Collateral Ratio
+`collateral value / debt owed`, expressed in basis points. Must stay above `minCollateralRatio` to avoid restrictions, and above `liquidationThreshold` to avoid liquidation.
 
-### CreatorVestingVault
-Smart contract holding creator's allocated tokens with cliff + linear release schedule protection.
+### CollateralEscrow
+The per-market contract (`RevvFiCollateralEscrow`) holding a borrower's collateral and pricing it via Chainlink.
 
 ---
 
 ## D
 
-### Deposit Window
-The time period during which LPs can deposit ETH into a launch. Closes at `raiseEndTime`.
-
-### DEX
-Decentralized Exchange. RevvFi uses Uniswap V2 as its primary DEX.
+### Dutch/English Hybrid Auction
+RevvFi's liquidation mechanism: a declining reference price (Dutch-style) that bidders can still outbid each other on before it settles (English-style), rather than settling instantly to the first bidder.
 
 ---
 
 ## E
 
-### ERC20
-Ethereum standard for fungible tokens. RevvFi tokens follow ERC20 standard.
+### EIP-1167 (Minimal Proxy Clone)
+The contract-cloning standard RevvFi's Factory uses to deploy a new Market/Escrow/OfferBook/LiquidityQueue per market cheaply — each clone is ~100 bytes and delegates all logic to one shared implementation contract.
 
----
-
-## F
-
-### Failing Launch
-A launch where total deposited ETH never reaches the `targetLiquidityETH` before `raiseEndTime`. Failed launches allow refunds.
-
-### Fungible
-Interchangeable. ERC20 tokens are fungible (each token is identical).
-
----
-
-## G
-
-### Governance
-System for collective decision-making by LPs. Uses share-based voting (no separate token).
-
-### Guardian Multisig
-Multi-signature wallet that can emergency-pause launches but cannot access funds.
+### ERC-721
+The NFT standard used for `RevvFiPositionNFT` — every lender position is a transferable token.
 
 ---
 
 ## H
 
-### Hard Cap
-Maximum total ETH accepted in a launch. If set to 0, no maximum (soft cap only).
-
-### Headroom
-The remaining capital available before hard cap is reached.
+### Health Factor
+Informal term for a position's collateral ratio relative to its liquidation threshold — "healthy" means well above it, "at risk" means approaching it.
 
 ---
 
 ## L
 
-### Launch
-The execution of `bootstrapper.launch()` when:
-1. `totalDepositedETH >= targetLiquidityETH`
-2. `block.timestamp > raiseEndTime`
-3. Called by anyone (permissionless, incentivized with 0.01 ETH)
+### Liquidation Threshold
+The collateral ratio below which a position becomes eligible for liquidation.
 
-### Launch Fee
-0.1 ETH paid by creator to deploy a new launch. Non-refundable even if launch fails.
-
-### Launch Incentive
-0.01 ETH reward to the address that calls `launch()`. Covers caller's gas costs.
-
-### Lock Duration
-Period in seconds that LPs must wait after launch before withdrawing. Set by creator, ranges 30-730 days.
-
-### Liquidity Pool
-Pool of tokens + ETH on Uniswap V2 used for trading. RevvFi creates dedicated pools per token.
-
-### LP (Liquidity Provider)
-User who deposits ETH into a RevvFi launch. Receives shares and governance voting rights.
-
-### LP Token (Uniswap)
-ERC20 token representing a share of a Uniswap V2 liquidity pool. Held by RevvFiBootstrapper, not distributed to LPs.
+### LTV (Loan-to-Value)
+The inverse framing of collateral ratio — how much can be borrowed against a given amount of collateral.
 
 ---
 
 ## M
 
-### Maturity Time
-Timestamp when LPs can begin withdrawals. Formula: `maturityTime = raiseEndTime + lockDuration`
+### Market
+A `RevvFiMarket` instance — one per borrower (a borrower can have more than one), holding that borrower's positions, collateral, and offer book.
 
-### Multisig
-Multi-signature wallet requiring multiple authorized signers to execute transactions.
+### maxApr
+A borrower-supplied ceiling passed to `borrow()`. If the weighted-average APR of the resulting fill would exceed it, the entire borrow reverts.
+
+### Min Collateral Ratio
+The minimum collateral ratio a market enforces for new borrows and withdrawals.
 
 ---
 
-## N
+## O
 
-### Non-Transferable
-Property of RevvFi shares: shares cannot be transferred between addresses. Can only be minted on deposit, burned on withdrawal.
+### Offer
+A lender's standing order in a market's OfferBook: an amount, an APR, a seniority tier, and an expiry.
 
----## O
+### OfferBook
+The per-market contract (`RevvFiOfferBook`) holding all active offers, bucketed by APR for efficient lowest-APR-first matching.
 
 ### Oracle
-On-chain system that provides external data. PopularityOracle calculates popularity scores for launches.
+A Chainlink `AggregatorV3Interface` price feed used by a market's CollateralEscrow to value collateral.
 
 ---
 
 ## P
 
-### Pair
-Uniswap V2 trading pair (e.g., REVV/WETH) that enables token trading.
+### Position
+A single lender's claim within a market — tracked by its own principal, its own APR, and its own accrual clock, and represented on-chain as a `RevvFiPositionNFT`.
 
-### Per-Token Contract Isolation
-RevvFi architectural principle: each launch gets independent contracts (bootstrapper, vaults) to prevent cross-launch interference.
-
-### Popularity Score
-0-100 metric calculated by PopularityOracle based on:
-- Deposit velocity (30%)
-- Unique depositors (25%)
-- Social verification (20%)
-- Creator reputation (15%)
-- Time to target (10%)
-
-### Proposal
-Governance action proposed by an LP. Types: Treasury Release, Strategic Release, Lock Reduction, Emergency.
-
-### Proposer
-LP who creates a governance proposal.
+### Pull-Based Claim
+RevvFi's repayment model: a repayment credits each affected lender's claimable balance, but never transfers tokens automatically — lenders call `claimFunds()` themselves.
 
 ---
 
 ## R
 
-### Raise End Time
-Timestamp when deposit window closes. Set to: `block.timestamp + raiseWindowDuration`
+### Reputation Score
+A borrower's protocol-wide, on-chain score (0–1000), recalculated as `(successfulLoans × 1000 / totalLoans) − (defaultedLoans × 50)`, clamped to `[0, 1000]`.
 
-### Raise Window Duration
-Duration in seconds that deposit window stays open.
+### Reserve Price
+The floor price (80% of debt) a liquidation auction's declining price will not drop below.
 
-### Refund
-Return of deposited ETH to LP if launch fails. Proportional to LP's share balance.
-
-### RevvFiBootstrapper
-Primary smart contract per launch. Orchestrates deposits, launch, refunds, and withdrawals.
-
-### RevvFiFactory
-Main factory contract. Deploys new launch instances and maintains registry.
-
-### RevvFiGovernance
-Governance contract managing LP voting on proposals.
-
-### Rug Pull
-Malicious action where creator drains funds illegally. RevvFi prevents via:
-- Non-transferable shares
-- Treasury controls
-- Vesting cliff/locks
-- Creator isolation
+### Risk Label
+A letter grade (AAA/AA/A/B/C/D) derived from a borrower's reputation score.
 
 ---
 
 ## S
 
-### Share
-Internal accounting unit representing LP's stake. Minted 1:1 with ETH deposited. Non-transferable.
+### Seniority
+A per-offer flag (`0` = senior, `1` = junior) determining loss-absorption order during a liquidation shortfall — junior positions absorb losses first. It does **not** affect the order offers are matched in during a normal borrow (that's purely lowest-APR-first).
 
-### Share Ledger
-Mapping `shares[address => uint256]` tracking each LP's share balance. Serves as governance instrument.
-
-### Slippage
-Price movement during token swap. RevvFi uses 1% slippage tolerance on Uniswap interactions.
-
-### Soft Cap
-Minimum ETH required to launch (`targetLiquidityETH`). If not met, launch fails and LPs can refund.
-
-### Staking
-Locking tokens to earn rewards. RevvFi uses shares instead (no separate staking mechanism in v1).
-
-### Strategic Reserve Vault
-Vault holding strategically reserved tokens with strict governance controls:
-- 66% approval threshold
-- 14-day timelock
-- Max 25% per quarter
-
----
-
-## T
-
-### Target Liquidity ETH
-Minimum ETH required to execute launch. If target not reached by `raiseEndTime`, launch fails.
-
-### Template
-Token template used to deploy new ERC20s. RevvFi templates include Community, Utility, Meme types.
-
-### Threshold
-See **Approval Threshold**
-
-### Timelock
-Delay period between proposal approval and execution. Allows LPs to exit if disagreeing:
-- Treasury: 7 days
-- Strategic: 14 days
-- Emergency: 48 hours
-
-### Total Shares
-Sum of all shares minted across all LPs: `totalShares = sum(shares[lp])`
-
-### Total Supply
-Total tokens minted per launch. Sum of:
-- Liquidity Allocation
-- Creator Vesting
-- Treasury
-- Strategic Reserve
-- Rewards
-
-### Transfer Pause
-Function preventing token transfers during emergency. RevvFi tokens don't include this (unnecessary).
-
-### Treasury Vault
-LP-controlled vault holding treasury tokens. Uses 60% approval + 7-day timelock.
-
----
-
-## U
-
-### Uniswap V2
-DEX version 2 used for RevvFi liquidity. Provides AMM mechanics, routing, and LP token generation.
-
-### Unique Depositors
-Count of distinct addresses that deposited in a launch. Used in popularity score calculation.
-
----
-
-## V
-
-### Vault
-Smart contract holding tokens with restricted access. RevvFi has 4 vault types per launch:
-- CreatorVestingVault
-- TreasuryVault
-- StrategicReserveVault
-- RewardsDistributor
-
-### Vesting
-Schedule of token release over time. RevvFi uses:
-- Cliff: no release for period (e.g., 1 year)
-- Linear: gradual release afterward (e.g., 2 years)
-
-### Voting Power
-Share balance of an LP, used to weight their votes in governance. Direct 1:1 relationship.
+### Stale Price Threshold
+The per-market maximum age (default 24 hours) a Chainlink price can be before `RevvFiCollateralEscrow` rejects it as stale.
 
 ---
 
 ## W
 
-### WETH
-Wrapped Ethereum. ERC20 token representing 1 ETH. Used for Uniswap V2 pairs.
-
-### Withdrawal
-LP action to close position and receive assets after `maturityTime`. Options:
-- **withdrawAsAssets:** Receive ETH + tokens
-- **withdrawAsETH:** Receive only ETH (tokens auto-swapped)
-
----
-
-## X
-
-*No RevvFi-specific X terms.*
-
----
-
-## Y
-
-*No RevvFi-specific Y terms.*
-
----
-
-## Z
-
-*No RevvFi-specific Z terms.*
+### Weighted-Average APR
+The blended APR across all offers filled in a single `borrow()` call — used only to check against the borrower's `maxApr` ceiling and in the `Borrow`/`DrawdownExecuted` events. It is never what an individual position actually accrues at; each position keeps its own quoted rate.
 
 ---
 
 ## Related Concepts
 
-### Blockchain Terms
-
-- **Block:** Unit of bundled transactions
-- **Smart Contract:** Self-executing code on blockchain
-- **Gas:** Fee unit for computation
-- **Slippage:** Price impact of large trades
-- **Liquidity:** Ability to buy/sell without large price impact
-
-### DeFi Terms
-
-- **Liquidity Provider:** User who provides capital to DEX
-- **Trading Pair:** Two tokens that can be exchanged
-- **Yield Farming:** Depositing liquidity to earn rewards
-- **Governance Token:** Token granting voting rights
-- **Timelock:** Delay before sensitive actions execute
-
 ### Ethereum Terms
-
-- **ERC20:** Token standard for fungible tokens
-- **ERC721:** Token standard for non-fungible tokens
 - **Address:** 42-character identifier for accounts/contracts
-- **Multisig:** Wallet requiring multiple signatures
-- **Proxy:** Upgradeable smart contract pattern
+- **Gas:** Fee unit for computation
+- **Proxy:** Upgradeable/cloneable smart contract pattern (see EIP-1167 above)
+- **Multisig:** Wallet requiring multiple signatures to execute transactions
 
 ---
 
 ## Next Steps
 
-- Review [Mechanics](/mechanics) to understand RevvFi workflows
+- Review [Mechanics](/mechanics) to see these terms in context
 - Check [Reference](/reference) for specific function signatures
 - Explore [Architecture](/architecture) for contract designs
