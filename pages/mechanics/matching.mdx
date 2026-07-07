@@ -1,51 +1,48 @@
 # Matching Engine
 
-The RevvFi Matching Engine is the core component that facilitates peer-to-peer lending by pairing borrow requests with lender offers based on transparency, competitiveness, and seniority.
+The RevvFi matching engine (`RevvFiOfferBook.getBestOffers()`) fills a borrow request from the lowest-APR active offers available in that market — there's no pooled rate, and matching is entirely order-book driven.
 
 ## The Matching Algorithm
 
-When a borrower requests a loan of amount $L$ against their market, the protocol executes the following steps:
+When a borrower calls `borrow(amount, useSeniorOnly, maxApr)`, the OfferBook executes:
 
 ### 1. Offer Selection
-The engine scans the `OfferBook` for all offers where:
-- `status == ACTIVE`
-- `minAPR <= MarketTargetAPR`
-- `LenderBalance >= RequestedAmount` (or partial fills allowed)
+The engine scans all active offers where:
+- `active == true`
+- `remainingAmount > 0`
+- `expiry > block.timestamp`
+- If `useSeniorOnly == true`: only offers with `seniority == 0` (senior) are considered
 
-### 2. Prioritization Matrix
-Offers are sorted based on three primary criteria in descending order of priority:
+### 2. Sorting
 
-| Priority | Criteria | Logic |
-| :--- | :--- | :--- |
-| **1** | **Seniority** | Senior offers (Tier 0) are matched before Junior offers (Tier 1). |
-| **2** | **APR** | Matches from lowest APR to highest APR (best price for borrower). |
-| **3** | **Timestamp** | "First-in, first-out" (FIFO) for identical APRs/Seniority. |
+Offers are bucketed by APR internally (`aprBuckets`), and buckets are sorted **lowest APR first**. Within a bucket, offers are filled in insertion order. Seniority is **not** an automatic priority tier in the fill order — it's purely a filter the borrower can opt into via `useSeniorOnly`. A senior offer at a higher APR does not get filled before a junior offer at a lower APR.
 
 ### 3. Execution
-1. The engine calculates the weighted average APR.
-2. It locks the required funds from lender accounts.
-3. It mints `LenderPosition` NFTs for each participating lender.
-4. Total requested principal is transferred to the borrower.
+1. The OfferBook (`executeDrawdown`) walks buckets lowest-APR-first, taking as much as needed from each offer (supporting partial fills) until `amount` is satisfied, and returns the filled offers plus their **weighted-average APR**.
+2. The Market checks that weighted-average APR against the borrower's `maxApr` ceiling — if it's exceeded (or exceeds the protocol-wide `MAX_APR_BPS` cap), the **entire borrow reverts**, not just the offers above the ceiling.
+3. On success, the requested principal is transferred to the borrower.
+4. One `RevvFiPositionNFT` is minted per lender whose offer was (partially or fully) filled, each carrying **that lender's own APR** — the weighted average is only used for the `maxApr` check and the `Borrow`/`DrawdownExecuted` events; it is never stored as what any individual position accrues at.
 
 ---
 
 ## Seniority Tiers
 
-RevvFi supports a tiered risk model:
+- **Senior (`seniority == 0`):** Paid back first during liquidation loss distribution. Borrowers can restrict a draw to senior-only liquidity via `useSeniorOnly`.
+- **Junior (`seniority == 1`):** Absorbs losses first during liquidation (first-loss position), in exchange for lenders being free to quote whatever APR they want without a senior-only restriction working against them.
 
-- **Senior Tiers (Default):** These lenders are paid back first during regular repayments and have priority claims during liquidations. Because they take less risk, they typically offer lower APRs.
-- **Junior Tiers:** These lenders take "first-loss" risk. They are paid only after senior obligations are met, but they earn significantly higher APRs to compensate for the risk.
+Seniority affects **loss distribution during liquidation**, not the order offers are matched in during a normal borrow.
 
 ## Matching Example
 
-**Borrower Request:** 10,000 USDC
+**Borrower Request:** 10,000 USDC, `useSeniorOnly = false`, `maxApr = 800` (8%)
 
 **Available Offers:**
 - Offer A: 5,000 USDC @ 5% APR (Senior)
-- Offer B: 5,000 USDC @ 7% APR (Senior)
-- Offer C: 5,000 USDC @ 10% APR (Junior)
+- Offer B: 3,000 USDC @ 6% APR (Junior)
+- Offer C: 5,000 USDC @ 10% APR (Senior)
 
 **Result:**
-- Engine matches 100% of Offer A and 100% of Offer B.
-- **Effective APR:** 6%
-- Offer C remains in the book.
+- Engine fills 100% of Offer A (5,000 @ 5%), 100% of Offer B (3,000 @ 6%), and 2,000 of Offer C (@ 10%) to reach the full 10,000 requested — lowest APR first, regardless of seniority.
+- Weighted-average APR of the fill: `(5,000×5% + 3,000×6% + 2,000×10%) / 10,000 = 6.3%`.
+- `6.3% ≤ maxApr (8%)`, so the borrow succeeds. Three position NFTs are minted, accruing at **5%, 6%, and 10% respectively** — each lender earns exactly what they quoted, independently of the others and of the 6.3% figure (which only exists for the `maxApr` check and the emitted event).
+- Had the borrower instead set `maxApr = 550` (5.5%), this exact same fill would **revert in full** — even though Offers A and B alone (8,000 of the 10,000 needed) are individually well under 5.5% — because completing the requested 10,000 requires touching Offer C, and the resulting blended rate (6.3%) exceeds the ceiling.

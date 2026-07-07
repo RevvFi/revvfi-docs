@@ -1,38 +1,60 @@
-# Dutch Auction Liquidation
+# Liquidation Auctions
 
-Liquidations in RevvFi are handled via a transparent, on-chain Dutch Auction mechanism to ensure that collateral is sold at a fair market price while protecting lender principal.
+Liquidations in RevvFi are handled by `RevvFiLiquidator`, running a declining-price auction that bidders can still compete on — a hybrid of a Dutch auction (falling reference price) and an English auction (competing bids), rather than a pure first-bidder-wins model.
 
 ## Auction Trigger
-Any user (the "liquidator") can trigger a liquidation when a position's Health Factor falls below **1.0**.
 
-## Auction Phases
+Any user can trigger liquidation once a position's collateral ratio falls below the market's `liquidationThreshold`, which creates an auction via `RevvFiLiquidator.createAuction()`.
+
+## Auction Lifecycle
 
 ### 1. Initialization
-When `startAuction()` is called:
-- Collateral is locked in the auction contract.
-- The starting price is set to **100% of the outstanding debt** (Principal + Accrued Interest).
+When `createAuction()` is called:
+- Collateral is transferred into the liquidator contract for the auction.
+- **Starting price** is set to 100% of the outstanding debt.
+- **Reserve price** is fixed at 80% of the outstanding debt — the floor the current price will never drop below.
+- The auction runs for `auctionDuration` (3 days by default).
 
 ### 2. Price Decay
-The price of the collateral decreases linearly or in steps over a fixed window (e.g., 24 hours).
+The current price decays in discrete steps rather than continuously:
 
-- **Start Price:** 100% of Debt
-- **Reserve Price:** 80% of Debt (The floor price below which the auction will not sell)
+```solidity
+steps = (block.timestamp - startTime) / dutchAuctionStepDuration;      // default: 1 hour
+decrement = debtAmount * dutchAuctionPriceDecrementBps * steps / 10000; // default: 5% of debt per step
+currentPrice = max(debtAmount - decrement, reservePrice);
+```
 
-### 3. Settlement
-A liquidator can call `bid()` at any point.
-- The liquidator pays the current auction price in the loan currency.
-- The liquidator receives the collateral assets.
-- The protocol distributes the proceeds to lenders according to their **Seniority**.
+So by default the price steps down 5% of the original debt every hour until it reaches the 80% reserve floor (roughly 4 hours in), then holds there for the remainder of the 3-day window.
+
+### 3. Bidding
+Anyone can call `placeBid(auctionId, bidAmount)`:
+- The **first bid** on an auction must meet or exceed the current (declining) price.
+- **Every subsequent bid** must exceed the previous highest bid by at least `minBidIncrementBps` (1% by default) — it does not need to chase the declining reference price once a bid exists.
+- Each new highest bid immediately refunds the previous bidder their tokens.
+- A bid placed within `auctionExtensionWindow` (15 minutes by default) of the current `endTime` pushes `endTime` forward by that same window, preventing last-second sniping.
+
+### 4. Settlement
+Anyone can call `settleAuction(auctionId)` once `block.timestamp > endTime`:
+- If there's a highest bidder: their bid is transferred to the market (for lender distribution), and the collateral is transferred to them.
+- If there were **no bids at all**: the liquidator automatically retries with a fresh auction rather than leaving collateral stuck.
+- Any gap between the debt owed and the winning bid is recorded as bad debt via `Market.settleLiquidation()`, which also feeds into the borrower's reputation score.
 
 ---
 
-## Bid-Time Extension
-To prevent "sniping" at the very end of an auction, RevvFi implements a **Bid-Extension** (often called a "Gavel" mechanism):
-- If a bid is placed within the last 15 minutes of an auction, the auction window is extended by another 15 minutes.
-- This ensures the market has time to react to late price discovery.
+## Loss Distribution by Seniority
 
-## Revenue Split
-If an auction settles above 100% of the debt:
-1. **Lenders:** Receive 100% of Principal + Interest.
-2. **Liquidator:** Receives the collateral.
-3. **Borrower:** Receives the remaining "surplus" collateral value (if any).
+When a liquidation doesn't fully cover the debt, losses are absorbed **junior positions first**:
+- Junior positions (`seniority == 1`) take losses before senior positions, in proportion to their share of the shortfall.
+- Senior positions (`seniority == 0`) are only affected once junior positions have absorbed everything they can.
+
+This is the seniority tier's actual function in the protocol — it governs loss order during a shortfall, not the fill order during a normal `borrow()`.
+
+## Worked Example
+
+**Position:** 10,000 USDC debt, undercollateralized
+
+1. Auction created: starting price 10,000 USDC, reserve price 8,000 USDC, 3-day window.
+2. After 2 hours (2 steps @ 5%/step = 10% decayed): current price = 9,000 USDC.
+3. Bidder A bids 9,000 USDC — meets the current price, becomes highest bidder.
+4. 10 minutes before `endTime`, Bidder B bids 9,200 USDC (> 9,000 × 1.01) — exceeds A's bid by more than the minimum increment, becomes new highest bidder, A is refunded, and the auction's `endTime` is extended by 15 minutes.
+5. No further bids arrive. `settleAuction()` is called after the (extended) `endTime`: the market receives 9,200 USDC (recording an 800 USDC shortfall as bad debt), and Bidder B receives the collateral.

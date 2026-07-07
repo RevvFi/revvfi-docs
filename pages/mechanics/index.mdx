@@ -4,34 +4,36 @@ This section details the operational flows of the RevvFi lending protocol, from 
 
 ## The Protocol Lifecycle
 
-Developing and participating in a RevvFi market involves four distinct phases.
-
 ### Phase 1: Market Creation
-- **Action:** A borrower (individual or DAO) deploys an independent `LendingMarket`.
-- **Parameters:** Borrower configures accepted collateral (e.g., WBTC, ETH), Loan-to-Value (LTV) ratios, and liquidation thresholds.
-- **Cost:** A small platform fee is paid to the `RevvFiLendingEngine`.
+- **Action:** A registered borrower calls `RevvFiFactory.deployMarket(...)`, specifying the borrow asset, collateral asset, Chainlink oracle, decimals, min collateral ratio, and liquidation threshold.
+- **Cost:** A one-time deployment fee is paid to the Factory's fee recipient.
+- **Result:** A dedicated Market, CollateralEscrow, OfferBook, and LiquidityQueue are cloned and wired together for this borrower.
 
-### Phase 2: Liquidity Accumulation (Offer Phase)
-- **Action:** Lenders browse active markets and submit `Offers`.
-- **Flexibility:** Lenders specify their own risk appetite by choosing Seniority and a target APR range.
-- **Security:** Funds remain in the `LendingMarket` contract but are not yet earning interest until matched.
+### Phase 2: Offer Submission
+- **Action:** Lenders call `submitOffer(amount, apr, seniority, duration)` on the market's OfferBook.
+- **Flexibility:** Each lender picks their own amount, APR, and seniority (senior or junior) independently — there's no pooled rate to opt into.
+- **State:** Offer funds sit in the OfferBook contract, unmatched and not yet accruing interest, until a borrower draws against them.
 
 ### Phase 3: Borrowing & Matching
-- **Action:** The borrower initiates a `requestLoan()`.
-- **Success:** The **Matching Engine** automatically pairs the request with the most competitive (lowest APR) offers available.
-- **Accrual:** Interest begins accruing on a per-second basis from the moment of match.
+- **Action:** The borrower deposits collateral, then calls `borrow(amount, useSeniorOnly, maxApr)`.
+- **Matching:** The OfferBook fills the request from active offers sorted lowest-APR-first (optionally senior-only), minting one `RevvFiPositionNFT` per lender filled.
+- **Accrual:** From that block onward, each resulting position accrues interest independently, at *that position's own* APR.
 
 ### Phase 4: Servicing & Repayment
-- **Action:** Borrowers repay principal plus accrued interest through the market contract.
-- **Distribution:** Funds are automatically routed back to the participating lenders.
-- **Reputation:** Upon settlement, the borrower's global **Reputation Score** increases.
+- **Action:** The borrower calls `repay(amount)` (partial) or `repayFull()` (settles everything).
+- **Distribution:** A partial repayment is split across all active positions proportional to each position's own share of total debt, crediting each lender's claimable balance — it does not transfer tokens to lenders directly.
+- **Claiming:** Lenders call `claimFunds(positionId)` themselves to pull their credited balance.
+- **Reputation:** On full settlement, the borrower's on-chain reputation score is recalculated.
+
+### Phase 5 (if needed): Liquidation
+- **Trigger:** Anyone can trigger liquidation once a position's collateral ratio falls below the market's liquidation threshold.
+- **Auction:** `RevvFiLiquidator` runs a declining-price auction (100% of debt down to an 80% reserve), which bidders can still outbid each other on until it ends.
+- **Settlement:** Proceeds are routed back to the market for lender distribution; any shortfall is recorded as bad debt against the borrower's reputation.
 
 ---
 
 ## Technical Guides
 
-Explore the core mechanisms in detail:
-
-- **[Matching Engine](/mechanics/matching):** How we ensure the best rates for borrowers and lenders.
-- **[Dutch Auctions](/mechanics/liquidation):** The mechanics of secure, market-driven liquidations.
-- **[Risk & Reputation](/mechanics/reputation):** How on-chain behavior translates to borrowing power.
+- **[Matching Engine](/mechanics/matching):** How offers are sorted and filled.
+- **[Liquidation Auctions](/mechanics/liquidation):** The declining-price auction mechanics in detail.
+- **[Risk & Reputation](/mechanics/reputation):** How on-chain repayment history becomes a borrowing-cost signal.

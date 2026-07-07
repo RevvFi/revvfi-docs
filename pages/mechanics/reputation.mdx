@@ -1,38 +1,47 @@
 # Risk & Reputation
 
-RevvFi differentiates itself by using a dynamic, on-chain reputation system that directly impacts borrowing costs and limits.
+RevvFi tracks a protocol-wide, on-chain reputation score for every borrower via `ReputationRegistry`, independent of any single market.
 
-## Reputation Score (RS)
-Every borrower is assigned a Reputation Score between **0 and 1000**.
+## Reputation Score
 
-### Score Calculations
-- **Starting Score:** 500
-- **Successful Full Repayment:** +1 point
-- **Early Repayment Bonus:** +2 points
-- **Liquidation (Default) Penalty:** -50 points
-- **Late Payment Penalty:** -5 points per day late
+Every borrower has a score between **0 and 1000**, recalculated from scratch on every update:
 
-## Risk Tiers
-Based on the RS, borrowers are categorized into Risk Tiers. These tiers are visible to all lenders in the `OfferBook`.
+```solidity
+totalLoans = successfulLoans + defaultedLoans;
+if (totalLoans == 0) return 500;  // no history yet
+
+successRate = (successfulLoans * 1000) / totalLoans;
+defaultPenalty = defaultedLoans * 50;
+
+score = clamp(successRate - defaultPenalty, 0, 1000);
+```
+
+This is a **success-rate** model, not an accumulating counter — a borrower's score reflects the proportion of their loans that were repaid successfully, minus a fixed penalty per default. A borrower with a long history of mostly-successful loans and a few defaults will score lower than one with a shorter, cleaner history, which keeps the score meaningful regardless of how many loans a borrower has taken.
+
+## Risk Labels
 
 | Score Range | Label | Description |
 | :--- | :--- | :--- |
-| **900 - 1000** | **AAA** | Prime borrower, lowest risk. |
-| **800 - 899** | **AA** | Highly reliable. |
-| **700 - 799** | **A** | Reliable with minor history. |
-| **500 - 699** | **B** | Standard/New borrower. |
-| **300 - 499** | **C** | High risk, past defaults. |
-| **0 - 299** | **D** | Critical risk, multiple defaults. |
+| **900 – 1000** | **AAA** | Excellent track record |
+| **800 – 899** | **AA** | Very good |
+| **700 – 799** | **A** | Good |
+| **500 – 699** | **B** | Fair / new borrower (starting score) |
+| **300 – 499** | **C** | Poor, past defaults |
+| **0 – 299** | **D** | Default-heavy history |
 
----
+## What Updates the Score
 
-## Technical Impact of Reputation
+| Event | Contract Call | Effect |
+| :--- | :--- | :--- |
+| Borrower draws down a loan | `recordBorrowActivity` | Tracked for activity history; doesn't itself change the score |
+| Loan fully repaid | `recordSuccessfulRepayment` | Increments `successfulLoans`, score recalculated |
+| Loan liquidated with a shortfall | `recordDefault` | Increments `defaultedLoans`, score recalculated |
 
-Reputation is not just a cosmetic badge; it is enforced by the smart contracts:
+## Advisory, Not Enforced On-Chain
 
-1. **APR Flooring:** Lenders can set filters to only match with borrowers above a certain RS. High RS borrowers naturally attract lower APR offers.
-2. **Loan-to-Value (LTV) Boost:** AAA borrowers may be granted up to 90% LTV on specific volatile assets, while D-tier borrowers might be capped at 40%.
-3. **Liquidation Thresholds:** Higher reputation can lead to slightly more "grace" in liquidation thresholds, reducing the risk of liquidation during minor flash crashes.
+Reputation in RevvFi is **informational, not automatically enforced** by the Market, OfferBook, or CollateralEscrow contracts — there is no on-chain APR floor, LTV boost, or liquidation-threshold adjustment tied to a borrower's score. What it does provide:
 
-## Reputation Recovery
-If a borrower defaults and their score drops, the only way to recover is through a series of successful, smaller "reputation-building" loans. This creates an on-chain credit history that lenders can trust without requiring real-world identity.
+- A public, on-chain, per-borrower track record any lender can check before submitting an offer into that borrower's market
+- A durable signal that follows a borrower across every market they've ever operated, not reset per-market
+
+Lenders factor reputation into their own offer decisions (e.g. quoting a lower APR to a borrower they trust, or skipping a market entirely) — the protocol surfaces the data, but doesn't gate access based on it.
