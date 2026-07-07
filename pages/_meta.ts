@@ -3,6 +3,7 @@ export default {
   architecture: 'Architecture',
   mechanics: 'Mechanics',
   reference: 'Reference',
+  contributing: 'Contributing',
   '-- Support': {
     type: 'separator',
   },

@@ -1,72 +1,47 @@
 # RevvFi Protocol
 
-A decentralized lending protocol enabling peer-to-peer loan matching with variable interest rates, collateralized borrowing, and reputation-based risk assessment on the blockchain.
+A fixed-rate, peer-to-peer lending protocol with isolated per-borrower markets, Chainlink-priced collateral, Dutch-auction liquidations, and an on-chain reputation system.
 
 ---
 
 ## Overview
 
-RevvFi is a sophisticated decentralized lending protocol that facilitates peer-to-peer lending with dynamic interest rate discovery through competitive offer mechanisms. The protocol is designed to support multiple independent lending markets, each with its own borrower, collateral requirements, and lender communities.
+RevvFi lets any registered borrower deploy their own independent lending market. Lenders submit offers into that market's order book at whatever APR they're willing to accept; when the borrower draws down, the protocol fills the request from the best available offers. Each resulting position accrues interest **independently, at the exact rate its lender quoted** — there is no shared pool and no blended rate diluting what any individual lender actually earns.
 
 ### Protocol Highlights
 
-- **Dynamic Market Creation:** Borrowers can deploy custom lending markets with configurable collateral types and parameters
-- **Flexible Interest Rate Discovery:** Lenders submit competitive offers with varying APRs, allowing automatic price discovery
-- **Collateral Management:** Secure collateral escrow with oracle-based valuation and health monitoring
-- **Advanced Liquidation:** Dutch auction-based liquidation mechanism for efficient collateral recovery
-- **Reputation Scoring:** On-chain reputation system tracking borrower performance across all markets
-- **Position NFTs:** Lender positions are represented as transferable ERC721 tokens
-- **Withdrawal Queue:** Epoch-based withdrawal system preventing bank runs and ensuring orderly liquidity management
-- **Tiered Lending:** Support for senior and junior lending positions with different risk/reward profiles
+- **Isolated Markets:** Each borrower's market is its own contract instance (EIP-1167 clone), with its own collateral, offer book, and positions. Risk in one market never touches another.
+- **Per-Position Interest Accrual:** Every lender position tracks its own principal, its own quoted APR, and its own last-accrual timestamp — not a shared, weighted-average index.
+- **Chainlink-Priced Collateral:** Collateral value is read from a real `AggregatorV3Interface` Chainlink feed, with a per-market configurable staleness threshold (default 24 hours).
+- **Dutch/English Hybrid Liquidation:** Undercollateralized positions are liquidated via a declining-price auction that bidders can still outbid each other on, with anti-sniping time extension.
+- **On-Chain Reputation:** A borrower's reputation score (0–1000) is derived from their actual success rate across every loan they've taken, not a simple incrementing counter.
+- **Position NFTs:** Every lender position is an ERC-721 token, transferable like any other NFT.
+- **Epoch-Based Withdrawal Queue:** Lenders exiting via the liquidity queue are processed in epochs rather than instantly, to prevent bank-run-style liquidity shocks.
+- **Senior/Junior Seniority:** Lenders can flag an offer as senior or junior; borrowers can optionally restrict a draw to senior-only liquidity.
 
 ---
 
-## Key Features
+## How a Loan Actually Happens
 
-### 1. Multi-Market Architecture
-Each borrower controls an independent lending market where they can secure loans. Markets are isolated, allowing borrowers to manage reputation and collateral separately.
+1. **Market creation** — A whitelisted borrower calls `RevvFiFactory.deployMarket()`, specifying the borrow asset, collateral asset, Chainlink oracle, decimals, and risk parameters. This clones a dedicated `RevvFiMarket`, `RevvFiCollateralEscrow`, `RevvFiOfferBook`, and `RevvFiLiquidityQueue` for that borrower.
+2. **Offers** — Lenders call `submitOffer(amount, apr, seniority, duration)` on the market's offer book. Funds sit in the offer book, unmatched, until a borrower draws against them.
+3. **Borrowing** — The borrower deposits collateral, then calls `borrow(amount, useSeniorOnly, maxApr)`. The offer book fills the request starting from the lowest-APR active offers (optionally senior-only), minting one `RevvFiPositionNFT` per lender filled.
+4. **Accrual** — From that moment, each position's owed amount grows at *that position's own* APR — independently of every other position in the market.
+5. **Repayment** — The borrower calls `repay()` (partial) or `repayFull()`. Repayments are split across active positions proportional to each position's own share of total debt, crediting each lender's claimable balance.
+6. **Claiming** — Lenders call `claimFunds(positionId)` themselves to pull their claimable balance out. Nothing is pushed automatically — this is a pull-based claim model.
+7. **Liquidation (if needed)** — If a position's health factor drops below its market's threshold, anyone can trigger `RevvFiLiquidator` to run a declining-price auction on the collateral, with proceeds routed back to lenders and any shortfall recorded as bad debt.
 
-### 2. Competitive Offer Matching
-Lenders submit offers with custom APRs and seniority levels. The protocol matches borrow requests with the most favorable offers, with senior offers prioritized.
+---
 
-### 3. Collateral Escrow & Health Monitoring
-Collateral is held in a dedicated escrow contract with continuous health monitoring:
-- **Min Collateral Ratio:** Minimum required collateral value vs. debt
-- **Liquidation Threshold:** Ratio at which position becomes liquidatable
-- **Oracle Integration:** Chainlink price feeds for real-time collateral valuation
+## Explore the Documentation
 
-### 4. Interest Accrual Engine
-- Per-position APR tracking
-- Automatic compound interest calculation
-- Synchronized accrual across all active positions
-- Real-time interest updates during borrowing and repayment
-
-### 5. Dutch Auction Liquidation
-When positions become undercollateralized, collateral is auctioned:
-- **Starting price:** 100% of debt
-- **Decreasing price:** Configurable step-based price reductions
-- **Reserve price:** 80% of debt ensures minimum recovery
-- **Bid-time auction extension:** Late bids extend auction window
-
-### 6. Reputation & Risk Rating
-Borrowers earn reputation scores (0-1000) based on:
-- **Starting Score:** 500 for new borrowers
-- **Success Bonus:** +1 point per successful loan repayment
-- **Default Penalty:** -50 points per default
-- **Risk Labels:** AAA (900+), AA (800-899), A (700-799), B (500-699), C (300-499), D (`<300`)
-
-### 7. Position NFTs
-Lender positions are ERC721 NFTs encoding principal amount, APR, seniority, and market association.
-
-### 8. Liquidity Queue Management
-Epoch-based withdrawal system with 7-day intervals to ensure orderly liquidity management and prevent bank runs.
+- **[Architecture](/architecture)** — Contract layout, the EIP-1167 clone pattern, and the reasoning behind the per-position interest model.
+- **[Mechanics](/mechanics)** — How offer matching, liquidation auctions, and reputation scoring actually work, function by function.
+- **[Reference](/reference)** — Full event log, deployment addresses, glossary, and gas estimates.
+- **[Contributing](/contributing)** — How to submit code, report bugs, and where each repository lives.
 
 ---
 
 ## License
 
-This documentation is licensed under the **MIT License**. See individual sections for third-party library licenses.
-
-<div align="center" style={{marginTop: '2rem'}}>
-  <p><strong>Liquidity-backed token launch protocol for trustless, LP-governed launches.</strong></p>
-</div>
+This documentation is licensed under the **MIT License**.

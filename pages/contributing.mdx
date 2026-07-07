@@ -1,0 +1,40 @@
+# Contributing
+
+RevvFi is open source across four repositories, all under [github.com/RevvFi](https://github.com/RevvFi):
+
+| Repository | Contents |
+|---|---|
+| [revvfi-contracts](https://github.com/RevvFi/revvfi-contracts) | Solidity smart contracts (Foundry) |
+| [revvfi-backend](https://github.com/RevvFi/revvfi-backend) | Go indexer and API |
+| [revvfi-app](https://github.com/RevvFi/revvfi-app) | Next.js frontend |
+| [revvfi-docs](https://github.com/RevvFi/revvfi-docs) | This documentation site |
+
+## How to Submit a Change
+
+1. Fork the relevant repository and branch off `main`.
+2. Keep pull requests focused on one change — smaller PRs get reviewed faster.
+3. Run the test suite before opening a PR:
+   - Contracts: `forge test`
+   - Backend: `go build ./... && go vet ./... && go test ./...`
+   - Frontend: `npx tsc --noEmit`
+   - Docs: `npm run build`
+4. Open a PR against `main` describing what changed and why.
+
+## Code Standards
+
+- Match the existing style and conventions of the file/repo you're editing.
+- No hardcoded addresses, private keys, or magic numbers where an existing config/env pattern already exists.
+- Contract changes should come with tests covering the new behavior.
+- Comments should explain non-obvious "why," not restate what the code already does.
+
+## Reporting Bugs
+
+Open an issue on the relevant repository with steps to reproduce, expected behavior, and actual behavior. For contract bugs, a minimal Foundry test reproducing the issue is the fastest way to get it fixed.
+
+## Documentation
+
+Found something in these docs that's outdated or wrong? PRs against [revvfi-docs](https://github.com/RevvFi/revvfi-docs) are especially welcome — this documentation only stays useful if it's kept in sync with the actual contracts.
+
+## Security Issues
+
+Please don't open a public issue for a security vulnerability — see the [RevvFi app's Contact page](https://revvfi.xyz/contact) and reach out directly instead.

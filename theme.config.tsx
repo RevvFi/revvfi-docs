@@ -34,7 +34,7 @@ const config: DocsThemeConfig = {
       <div style={{ textAlign: 'center' }}>
         <p style={{ marginBottom: '0.5rem' }}>© 2026 RevvFi. All rights reserved.</p>
         <p style={{ fontSize: '0.9rem', color: '#666' }}>
-          Liquidity-backed token launch protocol for trustless, LP-governed launches.
+          Fixed-rate, peer-to-peer lending with isolated markets and on-chain reputation.
         </p>
       </div>
     ),
