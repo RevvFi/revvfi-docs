@@ -1,143 +1,90 @@
 # Architecture Overview
 
-RevvFi's V2 architecture is built on a resilient, multi-market peer-to-peer lending framework with the following core principles:
+RevvFi's architecture is built on a multi-market, peer-to-peer lending framework with the following core principles:
 
-1. **Market Isolation** - Every borrower operates within an independent market, isolating risk and reputation.
-2. **Competitive Matching** - A sophisticated matching engine that pairs borrow requests with the lowest APR offers.
-3. **Collateralized Security** - Dedicated escrow contracts with real-time health monitoring and automated liquidations.
-4. **Reputation-Linked Risk** - On-chain reputation scores that evolve based on repayment history.
-5. **Secondary Liquidity** - Lender positions are tokenized as NFTs, enabling secondary market trading.
-6. **Managed Withdrawals** - Epoch-based liquidity management to prevent bank runs.
+1. **Market Isolation** — Every borrower operates within their own cloned market contract, isolating risk and collateral.
+2. **Order-Book Matching** — Lender offers are filled lowest-APR-first from an on-chain order book, not a shared liquidity pool.
+3. **Independent Interest Accrual** — Each lender position accrues interest at its own quoted rate, never a blended average.
+4. **Collateralized Security** — A dedicated escrow contract per market with Chainlink-priced health monitoring and Dutch-auction liquidation.
+5. **Reputation-Linked Risk** — A protocol-wide reputation registry scores every borrower by actual repayment history.
+6. **Position Tokenization** — Lender positions are ERC-721 NFTs, transferable on secondary markets.
+7. **Managed Withdrawals** — An epoch-based liquidity queue governs lender exits to prevent bank runs.
 
 ## Core Components
 
 ```text
-RevvFiLendingEngine
-├── Market Factory (Deploys new borrower markets)
-├── Reputation Registry (Global score tracking)
-└── Oracle Hub (Chainlink price feed management)
+RevvFiArchController
+├── Registers/removes approved borrowers
+├── Approves/blacklists borrow & collateral assets and oracles
+└── Tracks all deployed markets
 
-LendingMarket (One per Borrower)
-├── Manages borrow requests
-├── Houses the Offer Book
-├── Executes matching logic
-└── Tracks active positions
+RevvFiFactory
+├── Clones a Market + CollateralEscrow + OfferBook + LiquidityQueue per deployMarket() call
+├── Collects a one-time deployment fee
+└── Wires each new market's contracts together
 
-CollateralEscrow
-├── Securely holds collateral assets
-├── Monitors Health Factor (HF)
-└── Orchestrates Dutch Auction liquidations
+RevvFiMarket (one per borrower)
+├── Holds each position's principal, APR, seniority, and last-accrual timestamp
+├── Handles borrow / repay / repayFull / claimFunds
+└── Coordinates with the OfferBook and CollateralEscrow
 
-LenderPosition (ERC721)
-├── Tokenized debt position
-├── Encodes: Principal, APR, Seniority, Maturity
-└── Facilitates ownership transfer
+RevvFiOfferBook (one per market)
+├── Stores lender offers bucketed by APR
+├── Fills borrow requests lowest-APR-first
+└── Supports partial fills, modification, and cancellation
+
+RevvFiCollateralEscrow (one per market)
+├── Holds the borrower's collateral
+├── Reads price from a real Chainlink AggregatorV3Interface feed
+└── Enforces min collateral ratio + liquidation threshold
+
+RevvFiLiquidityQueue (one per market)
+└── Epoch-based withdrawal processing for lenders exiting a position
+
+RevvFiPositionNFT
+└── ERC-721 representing a lender's claim (principal, APR, seniority, market)
+
+RevvFiLiquidator
+└── Runs the declining-price liquidation auction, shared across all markets
+
+ReputationRegistry
+└── Protocol-wide borrower reputation score (0–1000), derived from success rate
 ```
 
 ## Key Architectural Decisions
 
-### 1. The P2P Matching Engine
+### 1. Order-Book Matching, Not a Shared Pool
 
-Unlike pool-based protocols like Aave or Compound where users borrow from a communal reservoir, RevvFi utilizes a **Peer-to-Peer Matching Engine**.
+Unlike pool-based protocols (Aave, Compound), RevvFi does not blend every lender into one pool rate. Lenders submit offers with their own amount, APR, and seniority; borrowing fills the request starting from the lowest-APR active offers. Each lender then earns *exactly the rate they quoted* for the life of their position.
 
-- **Offer Side:** Lenders submit "Offers" specifying amount, minimum/maximum APR, and preferred seniority.
-- **Request Side:** Borrowers submit "Requests" for specific capital amounts.
-- **Matching:** The protocol sorts compatible offers by APR (lowest first) and Seniority to satisfy the request.
+### 2. Isolated Markets Per Borrower
 
-This ensures borrowers always get the most competitive market rate while lenders compete for yield.
+Each borrower gets their own cloned `RevvFiMarket`/`RevvFiCollateralEscrow`/`RevvFiOfferBook`/`RevvFiLiquidityQueue` set (EIP-1167 minimal proxies, deployed by the Factory). A default in one borrower's market has zero effect on any other market's lenders or collateral.
 
-### 2. Isolated Market Risks
+### 3. Per-Position Independent Interest Accrual
 
-In RevvFi, each borrower (or project) has their own `LendingMarket`. 
-- **Risk Containment:** A default in Market A does not impact LPs in Market B.
-- **Custom Parameters:** Borrowers can configure their own liquidation thresholds, loan-to-value (LTV) ratios, and accepted collateral types.
+Every position stores its own `principal`, its own `apr`, and its own `lastAccrualTime`. Interest is computed per-position on demand (`principal * apr * elapsedTime`), rolled into principal on any repayment or loss event. There is no shared market-wide index — this was a deliberate correction after an earlier design (a single blended borrow index) was found to pay every lender in a market the same average rate regardless of what they individually quoted.
 
-### 3. Dynamic Reputation System
+### 4. Chainlink Oracle Integration
 
-The architecture includes a global `ReputationRegistry` that tracks every borrower's performance across the entire protocol.
-- **Score Range:** 0 to 1000 (starting at 500).
-- **Invariants:** Scores are updated settlement-by-settlement, providing a real-time risk signal to prospective lenders.
-- **Benefit:** Higher scores attract lower APR offers and higher LTV limits.
+Collateral value is priced via a real `AggregatorV3Interface` feed (`latestRoundData()`), with an owner/factory-configurable `stalePriceThreshold` per market (24 hours by default) rather than one hardcoded global value — real feeds have different heartbeats, and testnet feeds in particular can go far longer between updates than a mainnet ETH/USD feed.
 
-### 4. Dutch Auction Liquidations
+### 5. Pull-Based Claims
 
-To ensure efficient collateral recovery during market volatility, RevvFi uses a **Dutch Auction** mechanism rather than single-price liquidations.
-- **Efficiency:** Prices drop gradually until a buyer is found, preventing "death spirals."
-- **Recovery Guarantee:** A reserve price (80% of debt) ensures that at least a significant portion of lender principal is prioritized.
+When a borrower repays, the market credits each affected lender's `claimable` balance — it does not push tokens to lenders automatically. Lenders call `claimFunds(positionId)` themselves. This keeps repayment a single, bounded-gas transaction regardless of how many lenders are in a market.
 
-### 5. Position Tokenization
+### 6. Dutch/English Hybrid Liquidation
 
-Every active loan is represented by a **LenderPosition NFT**. 
-- **Transferability:** Lenders can sell their debt positions on secondary markets if they need immediate liquidity.
-- **Metadata:** All loan parameters (accrual status, principal, interest) are readable directly from the NFT's state or associated market.
+Liquidation auctions start at 100% of debt and decay in steps toward an 80%-of-debt reserve floor, but — unlike a pure Dutch auction — bidders can still outbid each other before the auction ends, with a 15-minute anti-sniping extension on late bids.
 
----
+### 7. Position Tokenization
 
-## Architecture Diagram
-
-```
-User Flow:
-┌─────────────┐
-│   Creator   │ ──┐
-└─────────────┘   │
-                  ├──> RevvFiFactory ──> Deploys per-launch contracts
-┌─────────────┐   │         │
-│ Liquidity   │ ──┤         ├──> TokenTemplateFactory ──> ERC20 Token
-│  Providers  │   │         │
-└─────────────┘   │         ├──> CreatorVestingVault
-                  ├──> RevvFiBootstrapper ──┬──> TreasuryVault
-                  │         │               ├──> StrategicReserveVault
-                  └──────────┤               ├──> RewardsDistributor
-                              └──> Uniswap V2 Pair (REVV/WETH)
-```
-
----
-
-## Contract Lifecycle
-
-### Phase 1: Creation
-- Creator calls `RevvFiFactory.createLaunch()`
-- 0.1 ETH launch fee required
-- New bootstrapper + vaults deployed
-- Token minted to bootstrapper
-
-### Phase 2: Deposit Window
-- LPs deposit ETH into RevvFiBootstrapper
-- Shares minted 1:1 with ETH
-- Deposits tracked until `raiseEndTime`
-- Hard cap enforced if set
-
-### Phase 3: Launch
-- Anyone calls `launch()` when target reached
-- Liquidity added to Uniswap V2
-- Creator/Treasury/Reserve/Rewards tokens transferred
-- Lock period begins: `maturityTime = raiseEndTime + lockDuration`
-
-### Phase 4: Withdrawal
-- After `maturityTime`, LPs can:
-  - **withdrawAsAssets:** Receive ETH + tokens
-  - **withdrawAsETH:** Swap tokens for ETH first
-
-### Phase 5: Governance
-- LPs vote on treasury/strategic releases
-- Proposals use share balance = voting power
-- Thresholds: Treasury (60%), Strategic (66%), Emergency (80%)
-
----
-
-## Deployment Targets
-
-| Network  | Priority | Rationale                     |
-|----------|----------|-------------------------------|
-| Base     | Primary  | Low gas, growing ecosystem    |
-| Arbitrum | Primary  | Low gas, high liquidity       |
-| Ethereum | Optional | Mainnet, high decentralization |
+Every position is minted as a `RevvFiPositionNFT`. Loan parameters are readable from the NFT/market state directly; ownership transfer moves the underlying claim.
 
 ---
 
 ## Next Steps
 
-- Read [Architectural Decisions](/architecture/decisions) for deep dives
-- Explore [Smart Contracts](/architecture/contracts) for full specifications
-- Review [Data Structures](/architecture/data-structures) for storage patterns
-- Check [Deployment](/architecture/deployment) for network config
+- Read [Architectural Decisions](/architecture/decisions) for the full reasoning behind each choice above
+- Explore [Smart Contracts](/architecture/contracts) for per-contract function references
+- Review [Data Structures](/architecture/data-structures) for exact on-chain storage layouts

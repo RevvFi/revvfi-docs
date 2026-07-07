@@ -2,58 +2,99 @@
 
 Technical specifications for the RevvFi core smart contracts.
 
-## 1. RevvFiLendingEngine
+## RevvFiArchController
 
-The central registry and factory for the protocol.
+Protocol-wide registry of approved borrowers, approved assets/oracles, and deployed markets.
 
-### Key Functions
-- `createMarket(address borrower, MarketParams params)`: Deploys a new `LendingMarket` for a borrower.
-- `updateReputation(address borrower, int256 delta)`: Adjusts borrower reputation score.
-- `getMarket(address borrower)`: Returns the market address for a specific borrower.
+- `registerBorrower(address)` / `removeBorrower(address)` — owner-gated borrower whitelist
+- `isRegisteredBorrower(address)` — used by the Factory to gate market deployment
+- `isBlacklistedAsset(address)` — checked against borrow asset, collateral asset, and oracle at deploy time
 
-## 2. LendingMarket
+## RevvFiFactory
 
-The primary interaction point for lenders and the borrower. Each borrower has a unique market.
+The entry point for deploying a new market.
 
-### State Variables
-- `borrower`: The owner of this market who can request loans.
-- `offerBook`: A mapping of active lender offers.
-- `activePositions`: A mapping of current loan NFTs.
+- `deployMarket(address borrower, address borrowAsset, address collateralAsset, address collateralOracle, uint8 collateralDecimals, uint8 borrowDecimals, uint256 minCollateralRatio, uint256 liquidationThreshold)` — clones and wires a new Market + CollateralEscrow + OfferBook + LiquidityQueue for `borrower`, gated on `ArchController.isRegisteredBorrower`. Requires payment of `deploymentFee`.
+- `setDeploymentFee(uint256)` / `setFeeRecipient(address)` — owner-only
+- `setCoreContracts(...)` — wires the shared PositionNFT/Liquidator/ReputationRegistry addresses once at protocol setup
 
-### Core Logic
-- `submitOffer(...)`: Lenders provide liquidity terms.
-- `requestLoan(uint256 amount)`: Borrower triggers the matching engine.
-- `repay(uint256 positionId)`: Borrower settles debt + accrued interest.
+## RevvFiMarket
 
-## 3. CollateralEscrow
+The primary interaction point for a single borrower and their lenders.
 
-Manages the safety of the protocol through asset custody and liquidation logic.
+### Position State (per position ID)
+- `positionPrincipal` — the position's actual owed principal, independent of any other position
+- `positionApr` — the APR this specific position accrues at
+- `positionLastAccrualTime` — last time interest was rolled into principal for this position
+- `positionSeniority`, `positionActive`, `positionSettled`, `positionClaimableAmount`
 
-### Mechanisms
-- **Escrow:** Holds assets deposited by the borrower.
-- **Health Factor (HF):** Monitored to prevent undercollateralization.
-- **Liquidation:** If `HF < 1`, the `startAuction` function is exposed.
+### Core Functions
+- `depositCollateral(uint256 amount)` / `withdrawCollateral(uint256 amount)`
+- `borrow(uint256 amount, bool useSeniorOnly, uint256 maxApr)` — fills the request from the OfferBook, mints a position NFT per lender filled
+- `repay(uint256 amount)` — partial repayment, split across active positions proportional to each one's own share of total debt
+- `repayFull()` — settles every active position at once
+- `claimFunds(uint256 positionId)` — pull-based; lender withdraws their credited claimable balance
+- `getTotalOwed()` / `getCurrentPrincipal()` — sum of all active positions' debt/principal
+- `getPositionValue(uint256 positionId)` / `getPositionClaimable(uint256 positionId)`
 
-## 4. LenderPosition (NFT)
+## RevvFiCollateralEscrow
 
-An ERC721 token representing a lender's claim to principal and interest.
+Holds a market's collateral and prices it via Chainlink.
 
-## 5. ReputationRegistry
+- `depositCollateral(address borrower, uint256 amount)` / `withdrawCollateral(...)` — callable only by the associated Market
+- `stalePriceThreshold` — per-market oracle staleness window (default 24h), tunable via `setStalePriceThreshold(uint256)` (factory-only)
+- `getCollateralRatio(address, uint256 debt)` / `isHealthy(...)` / `isLiquidatable(...)` — read the current Chainlink price and compare against `minCollateralRatio`/`liquidationThreshold`
+- `setMinCollateralRatio(uint256)` / `setLiquidationThreshold(uint256)` — factory-only
 
-A standalone contract managing the global Reputation Score (0-1000).
+## RevvFiOfferBook
 
-| Event | Score Adjustment |
+Order book of lender offers for one market.
+
+- `submitOffer(uint256 amount, uint256 apr, uint8 seniority, uint256 duration)` — `seniority`: `0` = senior, `1` = junior
+- `cancelOffer(uint256 offerId)` / `modifyOffer(uint256 offerId, uint256 newAmount, uint256 newApr, uint256 newDuration)`
+- `getBestOffers(uint256 amount, bool useSeniorOnly)` — sorts all active offers by APR ascending (across both seniority tiers) and fills up to `amount`; `useSeniorOnly` is a borrower-selectable filter, not an automatic priority tier
+- `cleanupExpiredOffers(uint256 maxCleanup)` — permissionless housekeeping for expired offers
+
+## RevvFiPositionNFT
+
+ERC-721 representing a lender's claim on a specific market.
+
+- Minted by a Market on `borrow()`, one NFT per lender filled
+- Encodes principal, APR, seniority, and market association
+- Burned/redeemed on full settlement
+
+## RevvFiLiquidator
+
+Runs liquidation auctions across every market.
+
+- `createAuction(...)` — called by a Market when a position is liquidatable; starting price = 100% of debt, reserve price = 80% of debt
+- `placeBid(uint256 auctionId, uint256 bidAmount)` — first bid must meet the current declining price; subsequent bids must exceed the previous highest by `minBidIncrementBps` (1% default)
+- `settleAuction(uint256 auctionId)` — callable after `endTime`; pays the market (for lender distribution) and transfers collateral to the winner. Auto-retries with a fresh auction if no bids were received.
+- Auction parameters: `auctionDuration` (3 days default), `dutchAuctionStepDuration` (1 hour default), `dutchAuctionPriceDecrementBps` (5% per step default), `auctionExtensionWindow` (15 minutes)
+
+## ReputationRegistry
+
+Protocol-wide borrower reputation, independent of any single market.
+
+| Field | Description |
 | :--- | :--- |
-| **New Borrower** | +500 (Baseline) |
-| **Successful Repayment** | +1 |
-| **Default (Liquidation)** | -50 |
-| **Early Repayment** | +2 |
+| `successfulLoans` | Incremented on each fully-repaid loan |
+| `defaultedLoans` | Incremented on each liquidation-triggered default |
+| `reputationScore` | `(successfulLoans * 1000 / totalLoans) - (defaultedLoans * 50)`, clamped to `[0, 1000]`; `500` if the borrower has no loan history yet |
+
+| Score Range | Risk Label |
+| :--- | :--- |
+| 900–1000 | AAA |
+| 800–899 | AA |
+| 700–799 | A |
+| 500–699 | B |
+| 300–499 | C |
+| 0–299 | D |
 
 ---
 
-## 6. OracleHub
+## Next Steps
 
-Integrates with Chainlink to provide secure price feeds for collateral valuation.
-
-- **Fallback mechanism:** Uses a TWAP-based oracle if Chainlink feeds are stale.
-- **Circuit Breaker:** Halts market matching if price volatility exceeds 20% in a 1-hour window.
+- Review [Architectural Decisions](/architecture/decisions) for the reasoning behind these designs
+- Explore [Data Structures](/architecture/data-structures) for full struct layouts
+- Check [Reference → Events](/reference/events) for the complete event log
