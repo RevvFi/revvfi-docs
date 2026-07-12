@@ -1,45 +1,64 @@
+import { Callout } from 'nextra/components'
+
 # Deployment Configuration
 
 RevvFi deployment addresses and network configuration.
+
+<Callout type="warning">
+  **RevvFi has not been audited.** The Sepolia deployment below is live and free to try — it
+  uses worthless mock tokens, so there's nothing to lose. If mainnet infrastructure is deployed,
+  treat it as experimental until an audit is complete: this is not financial advice, and no
+  address on this page should be used with funds you aren't prepared to lose.
+</Callout>
 
 ## Network Overview
 
 | Network | Chain ID | Status |
 |---------|----------|--------|
-| Sepolia | 11155111 | Testnet — live |
-| Ethereum Mainnet | 1 | Not yet deployed |
-| Polygon | 137 | Not yet deployed |
+| Sepolia | 11155111 | Testnet — live, free mock tokens |
+| Polygon | 137 | Infrastructure only, if deployed — no market created, audit pending |
+| Ethereum Mainnet | 1 | Not deployed |
 
 ## Sepolia Testnet
+
+Need test tokens? Use the [testnet faucet](https://faucet.revvfi.xyz) to mint free mock USDC and WETH — gas is sponsored, no Sepolia ETH required.
 
 **Protocol Contracts**
 
 | Contract | Address |
 |---|---|
-| ArchController | `0x03Fb4beFaF8Ec0AC0D91CfE78ee5A65559CBDE68` |
-| Factory | `0x040Da0AB6abF40d1c175AB9f11265D2825e9730c` |
-| PositionNFT | `0xc685f0F5472304D73964bDf8980652F7d023c485` |
-| Liquidator | `0x6bf84c9aa29c28f70C9c5DbC837310DB8fEaDF7f` |
-| ReputationRegistry | `0x3895D539D8E09aa6809274e0F881490b2fC25B3C` |
+| ArchController | `0x8D61aE14632d2f6FFA5eC44Fe5D99e6FcFbd8A5D` |
+| Factory | `0x431ADC0FC15188CdE609Efa9a69d4Dc61eF87E40` |
+| PositionNFT | `0xB325d4f03d56ED1410AE0904FE60dB5c2211de59` |
+| Liquidator | `0x6b55D65D26766642169DF6f92F996E80F8763999` |
+| ReputationRegistry | `0x28A6253fb16f0369f1B126F43ef8B7F5E5491631` |
 
 **Implementation Contracts** (cloned per market by the Factory)
 
 | Contract | Address |
 |---|---|
-| Market Implementation | `0xd5b86aA515d121197e29DE353c5BF11A4578bd5a` |
-| Escrow Implementation | `0x6247D163A0e1b2cfdD5ECAecbc6648D18192728e` |
-| OfferBook Implementation | `0xF51101c98bcDE6a9ccad65a7Df538f558Af907D4` |
-| LiquidityQueue Implementation | `0x29D187421416B260530034A662A79712d7f7c97b` |
+| Market Implementation | `0x5Af1D33387Ed28ef5742e0d3ba4F836252200432` |
+| Escrow Implementation | `0x955FE4d6FCd78b411578eb7B437fE007debBAa6A` |
+| OfferBook Implementation | `0x01D769fcb98d32b07e9d6d647BAe9dDE8c685E3f` |
+| LiquidityQueue Implementation | `0x3331fF8e12281E8971Bb67E715237D65Ff4bfF3F` |
 
-**Mock Tokens & Oracle** (testnet only)
+**Mock Tokens & Oracles** (testnet only)
 
 | Contract | Address |
 |---|---|
-| Mock USDC | `0xaB72BDdD3aa47A23b1F4D821C8018826Eb505528` |
-| Mock WETH | `0xA8d016492488F3116f5bB3f1E86009690C740E78` |
-| Chainlink Oracle (ETH/USD) | `0x694AA1769357215DE4FAC081bf1f309aDC325306` (real Chainlink Sepolia feed, not a mock) |
+| Mock USDC | `0x031f1Cc83b94f490777A92BF4B005C9AD07Ff3B7` |
+| Mock WETH | `0x098945D3dfd08220ae30419eAb995e625559A476` |
+| Chainlink Oracle (ETH/USD) | `0x694AA1769357215DE4FAC081bf1f309aDC325306` (real Chainlink Sepolia feed, used when WETH is collateral) |
+| Mock Oracle (reciprocal) | `0x7450C345048A3710CDd26c9bC3c44837cC580121` (used when USDC is collateral — no real reciprocal feed exists on Sepolia, so this mirrors the live ETH/USD price at deploy time) |
 
 All addresses verifiable on [Sepolia Etherscan](https://sepolia.etherscan.io/).
+
+## Polygon Mainnet
+
+`DeployMainnet.s.sol` deploys protocol infrastructure only — ArchController, Factory, the four
+implementation contracts, and the token safety blacklist. It does **not** register a borrower or
+create a market; that happens later, deliberately, once an audit is complete. If nothing is
+listed here, mainnet hasn't been deployed yet.
 
 ---
 
