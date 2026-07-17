@@ -16,7 +16,7 @@ RevvFi deployment addresses and network configuration.
 | Network | Chain ID | Status |
 |---------|----------|--------|
 | Sepolia | 11155111 | Testnet — live, free mock tokens |
-| Polygon | 137 | Infrastructure only, if deployed — no market created, audit pending |
+| Polygon | 137 | Live, unaudited — a market exists but holds no debt; do not deposit |
 | Ethereum Mainnet | 1 | Not deployed |
 
 ## Sepolia Testnet
@@ -55,10 +55,52 @@ All addresses verifiable on [Sepolia Etherscan](https://sepolia.etherscan.io/).
 
 ## Polygon Mainnet
 
-`DeployMainnet.s.sol` deploys protocol infrastructure only — ArchController, Factory, the four
-implementation contracts, and the token safety blacklist. It does **not** register a borrower or
-create a market; that happens later, deliberately, once an audit is complete. If nothing is
-listed here, mainnet hasn't been deployed yet.
+<Callout type="error">
+  **Do not deposit real funds.** RevvFi has not been through an independent security audit. A
+  market exists on this deployment (below) but currently holds no debt and no active positions —
+  do not submit lender offers or send funds to it. Every address below is informational only
+  until an audit is complete.
+</Callout>
+
+**Protocol Contracts**
+
+| Contract | Address |
+|---|---|
+| ArchController | `0x29D187421416B260530034A662A79712d7f7c97b` |
+| Factory | `0xF51101c98bcDE6a9ccad65a7Df538f558Af907D4` |
+| PositionNFT | `0xc685f0F5472304D73964bDf8980652F7d023c485` |
+| Liquidator | `0x6bf84c9aa29c28f70C9c5DbC837310DB8fEaDF7f` |
+| ReputationRegistry | `0x3895D539D8E09aa6809274e0F881490b2fC25B3C` |
+
+**Implementation Contracts** (cloned per market by the Factory)
+
+| Contract | Address |
+|---|---|
+| Market Implementation | `0xaB72BDdD3aa47A23b1F4D821C8018826Eb505528` |
+| Escrow Implementation | `0xA8d016492488F3116f5bB3f1E86009690C740E78` |
+| OfferBook Implementation | `0xd5b86aA515d121197e29DE353c5BF11A4578bd5a` |
+| LiquidityQueue Implementation | `0x6247D163A0e1b2cfdD5ECAecbc6648D18192728e` |
+
+**Market** (open — see warning above, do not deposit)
+
+| Contract | Address |
+|---|---|
+| Market (WETH/USDC) | `0x7CDA02daB71dfC6340319cf64310e2BB463a3C82` |
+| Borrower | `0xDFe588a31E4CC6da86f10d86275883ac70B2667E` |
+
+**External Contracts** (Polygon mainnet, not deployed by RevvFi)
+
+| Contract | Address |
+|---|---|
+| USDC (native) | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` |
+| WETH | `0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619` |
+| Chainlink Oracle (ETH/USD) | `0xF9680D99D6C9589e2a93a78A04A279e509205945` |
+
+**Token Safety** — approved borrow assets: USDC (native), USDT, DAI. Approved collateral: WETH,
+WBTC, WPOL/WMATIC. Blacklisted: USDC.e (deprecated), MaticX (rebase); stMATIC pending address
+verification.
+
+All addresses verifiable on [Polygonscan](https://polygonscan.com/).
 
 ---
 
